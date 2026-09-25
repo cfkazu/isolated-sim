@@ -250,3 +250,17 @@ test('保存と復元: 復元した島は、保存しなかった島とまった
   );
   assert.equal(b.log.length, a.log.length);
 });
+
+test('縄張りと旅立ち：大人は一度だけ旅立ち、ふだんはねぐらの近くで暮らす', () => {
+  const w = new World({ seed: 'home', initialCount: 60 });
+  for (let m = 0; m < 12 * 6; m++) w.step();
+  const adults = w.creatures.filter((c) => c.age >= w.maturityOf(c));
+  assert.ok(adults.length > 10);
+  assert.ok(adults.every((c) => c.dispersed));
+  const young = w.creatures.filter((c) => c.age < w.maturityOf(c) - 1);
+  assert.ok(young.every((c) => !c.dispersed));
+  const far = w.creatures.filter((c) => Math.hypot(c.x - c.hx, c.y - c.hy) > 0.15).length;
+  assert.ok(far / w.creatures.length < 0.1, `ねぐらから遠い個体 ${far}`);
+  const h = w.history.at(-1);
+  assert.ok(h.dispersal.geneM > 0 && h.dispersal.geneF > 0);
+});

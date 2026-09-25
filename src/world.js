@@ -78,6 +78,14 @@ const RAFT_RANGE = 70;
 const FOOD_NEED = 0.11;
 // 性選択：好みが最大（1）のメスにとって、飾りが最大のオスは飾りのないオスの何倍魅力的か、から 1 を引いた値
 const PREFERENCE_SCALE = 6;
+// 旅立ち：遺伝子の値 1 のとき、島の幅のこの割合くらい離れた場所へ移る
+const DISPERSAL_RANGE = 0.3;
+// 旅の疲れ：島の幅の DISPERSAL_RANGE 分を歩くと、栄養状態がこれだけ下がる
+const DISPERSAL_COST = 0.4;
+// 満ち足りているときの散歩は、ねぐら（ホームレンジの中心）へこの割合ずつ引き戻される
+const HOME_PULL = 0.12;
+// ねぐらは今いる場所へ少しずつ移っていく（1 か月あたり）
+const HOME_DRIFT = 0.02;
 // 好みが最大のメスが相手探しに費やす時間のせいで、その月に繁殖できる確率が何割減るか
 const CHOOSINESS_COST = 0.2;
 
@@ -176,6 +184,9 @@ export class World {
       births: 0,
       stillborn: 0,
       infertile: 0,
+      dispersals: 0,
+      dispersers: { M: 0, F: 0 },
+      dispersalDist: { M: 0, F: 0 },
       deaths: Object.fromEntries(Object.keys(DEATH_CAUSES).map((k) => [k, 0])),
       matings: 0,
       inbredBirths: 0,
@@ -222,6 +233,10 @@ export class World {
       y,
       px: x,
       py: y,
+      // ねぐら（ホームレンジの中心）。生まれた場所から始まり、大人になるときの旅立ちで移る
+      hx: x,
+      hy: y,
+      dispersed: founder,
       age,
       birthTick: this.tick - age,
       fatherId,
@@ -471,7 +486,40 @@ export class World {
     return this.island.isLand(nx, ny) && this.island.landmassAt(nx, ny) === this.island.landmassAt(c.x, c.y);
   }
 
+  // 大人になったとき一度だけ、遺伝子で決まる距離だけ離れた場所へ旅立つ（同じ陸地の中）。
+  // 遠くへ行くほど疲れるが、きょうだいとの餌の奪い合いや近親との交配を避けられ、空いた土地も見つけられる
+  _disperse(c) {
+    c.dispersed = true;
+    const want = DISPERSAL_RANGE * c.pheno.dispersal * (0.5 + this.rng.next());
+    if (want < 0.01) return;
+    for (let t = 0, d = want; t < 6; t++, d *= 0.8) {
+      const a = this.rng.next() * Math.PI * 2;
+      const nx = c.x + Math.cos(a) * d;
+      const ny = c.y + Math.sin(a) * d * (4 / 3);
+      if (nx < 0 || ny < 0 || nx >= 1 || ny >= 1 || !this._sameLand(c, nx, ny)) continue;
+      const occ = this._cellCount;
+      if (occ) {
+        occ[this.vegetation.cellAt(c.x, c.y)]--;
+        occ[this.vegetation.cellAt(nx, ny)]++;
+      }
+      c.x = c.hx = nx;
+      c.y = c.hy = ny;
+      c.condition = Math.max(0.05, c.condition - (DISPERSAL_COST * d) / DISPERSAL_RANGE);
+      this.counters.dispersals++;
+      this.counters.dispersalDist[c.sex] += d;
+      this.counters.dispersers[c.sex]++;
+      return;
+    }
+  }
+
   _move(c) {
+    if (!c.dispersed && c.age >= this.maturityOf(c)) {
+      this._disperse(c);
+      return;
+    }
+    // ねぐらは今いる場所へ少しずつ移る（餌を追って移り住む）
+    c.hx += (c.x - c.hx) * HOME_DRIFT;
+    c.hy += (c.y - c.hy) * HOME_DRIFT;
     // お腹が空いている・寒すぎる（暑すぎる）ときは、隣の草のマスの中から
     // 「草の量 ÷ (先客 + 1)」を「気温のつらさ」で割り引いた値が一番よい方へ移る（採餌と、山を下りる／登る）
     const stressHere = this._thermalStress(c.pheno, this.island.elevationAt(c.x, c.y));
@@ -510,11 +558,12 @@ export class World {
         return;
       }
     }
+    // 満ち足りているときは、ねぐらのまわりを歩き回る
     const step = c.age < 6 ? 0.004 : 0.009;
     for (let t = 0; t < 4; t++) {
       const a = this.rng.next() * Math.PI * 2;
-      const nx = c.x + Math.cos(a) * step;
-      const ny = c.y + Math.sin(a) * step * (4 / 3);
+      const nx = c.x + Math.cos(a) * step + (c.hx - c.x) * HOME_PULL;
+      const ny = c.y + Math.sin(a) * step * (4 / 3) + (c.hy - c.y) * HOME_PULL;
       if (this._sameLand(c, nx, ny)) {
         c.x = nx;
         c.y = ny;
@@ -887,8 +936,8 @@ export class World {
       if (island.isLand(c.x, c.y)) continue;
       const shore = island.nearestLand(c.x, c.y, 6);
       if (shore) {
-        c.x = c.px = shore.x;
-        c.y = c.py = shore.y;
+        c.x = c.px = c.hx = shore.x;
+        c.y = c.py = c.hy = shore.y;
       } else this._kill(c, 'sea');
     }
     this.creatures = this.creatures.filter((c) => c.alive);
@@ -979,6 +1028,8 @@ export class World {
           g.x = g.px = landed.x;
           g.y = g.py = landed.y;
         }
+        g.hx = g.x;
+        g.hy = g.y;
       }
       if (landed.land !== home) {
         const to = island.landmassById(landed.land);
@@ -1110,6 +1161,13 @@ export class World {
       births: this.counters.births,
       stillborn: this.counters.stillborn,
       infertile: this.counters.infertile,
+      // 昨年旅立った個体の平均の距離（島の幅に対する割合）と、旅立ちの遺伝子の平均
+      dispersal: {
+        M: this.counters.dispersers.M ? this.counters.dispersalDist.M / this.counters.dispersers.M : null,
+        F: this.counters.dispersers.F ? this.counters.dispersalDist.F / this.counters.dispersers.F : null,
+        geneM: cs.length ? cs.reduce((a, c) => a + c.pheno.dispMGene, 0) / cs.length : 0,
+        geneF: cs.length ? cs.reduce((a, c) => a + c.pheno.dispFGene, 0) / cs.length : 0,
+      },
       inbredBirths: this.counters.inbredBirths,
       deaths: { ...this.counters.deaths },
       meanF: cs.length ? sumF / cs.length : 0,

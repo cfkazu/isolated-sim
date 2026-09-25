@@ -237,6 +237,8 @@ function geneCards(c) {
     tail: (t) => `尾 ${pct(t.value)}・見栄え ${pct(tailDisplay(c))}`,
     prefTail: (t) => `強さ ${pct(t.value)}`,
     prefGlow: (t) => `強さ ${pct(t.value)}`,
+    dispM: (t) => `島の幅の ${pct(t.value * 0.3)} ほど旅立つ`,
+    dispF: (t) => `島の幅の ${pct(t.value * 0.3)} ほど旅立つ`,
   };
   const poly = polygenicSummary(g).map((t) => {
     const silent = t.sex && t.sex !== c.sex;
@@ -398,6 +400,15 @@ export class StatsPanel {
         { label: '発光 × 発光への好み', color: '--series-4' },
       ],
     });
+    this.disp = new Chart(host, {
+      title: '旅立ちの距離',
+      desc: '大人になるときに生まれた場所から離れる距離の遺伝子（島の幅に対する割合）。遠くへ行くと疲れるが、きょうだいとの餌の奪い合いと近親との交配を避けられる。オスとメスで別々に進化する。',
+      format: (v) => pct(v),
+      series: [
+        { label: 'オス', color: '--series-1' },
+        { label: 'メス', color: '--series-2' },
+      ],
+    });
     this.pred = new Chart(host, {
       title: '捕食者の数',
       desc: '獲物が増えると捕食者が増え、食べ尽くすと飢えて減る。0 になると島から消える（まれに海を越えて渡ってくる）。',
@@ -440,6 +451,7 @@ export class StatsPanel {
       H.map((h) => h.metabolism ?? 1),
     ]);
     this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
+    this.disp.setData(xs, [H.map((h) => (h.dispersal?.geneM ?? 0) * 0.3), H.map((h) => (h.dispersal?.geneF ?? 0) * 0.3)]);
     this.founders.setData(xs, [H.map((h) => h.founderLines ?? 0)]);
     const isl = islandStats(world.creatures, world.island);
     const total = Math.max(1, world.island.area);
@@ -522,7 +534,7 @@ export class StatsPanel {
   }
 
   redraw() {
-    for (const c of [this.climate, this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.founders, this.births]) c.draw();
+    for (const c of [this.climate, this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.disp, this.founders, this.births]) c.draw();
   }
 }
 

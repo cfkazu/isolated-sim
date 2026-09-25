@@ -22,7 +22,7 @@ export const INHERITANCE = {
   sexlimited: {
     label: '限性遺伝（ポリジーン）',
     short: '限性',
-    desc: '両方の性が遺伝子を持ち子に伝えるが、片方の性にしか現れない。尾の長さ（4 座）はオスだけに、好みの強さはメスだけに現れる。メスは長い尾の遺伝子を、オスは好みの遺伝子を、表に出さずに運んでいる。',
+    desc: '両方の性が遺伝子を持ち子に伝えるが、片方の性にしか現れない。尾の長さ（4 座）はオスだけに、好みの強さはメスだけに現れる。メスは長い尾の遺伝子を、オスは好みの遺伝子を、表に出さずに運んでいる。大人になるときに旅立つ距離も、オス用（2 座）とメス用（2 座）が別々にあるので、「オスが出ていく種」にも「メスが出ていく種」にもなりうる。',
   },
   polygenic: {
     label: '量的形質（ポリジーン）',
@@ -150,6 +150,8 @@ export const LOCI = [
   limited('PT1', 'C1', 60, 'prefTail', '尾への好み1', 0.3),
   poly('FR1', 'C1', 80, 'fur', 1),
   poly('MB1', 'C1', 95, 'metab', 1),
+  limited('DM1', 'C1', 52, 'dispM', 'オスの旅立ち1', 0.3),
+  limited('DF1', 'C1', 88, 'dispF', 'メスの旅立ち1', 0.3),
   del('DL1', 'C1', 110, 1),
   dmi('HA1', 'C1', 70, '不和合A-1', 0),
   dmi('HC1', 'C1', 20, '不和合C-1', 0),
@@ -195,6 +197,8 @@ export const LOCI = [
   poly('SZ3', 'C3', 35, 'size', 3),
   limited('PT3', 'C3', 45, 'prefTail', '尾への好み3', 0.3),
   poly('FR2', 'C3', 50, 'fur', 2),
+  limited('DM2', 'C3', 10, 'dispM', 'オスの旅立ち2', 0.3),
+  limited('DF2', 'C2', 72, 'dispF', 'メスの旅立ち2', 0.3),
   poly('FR3', 'C3', 62, 'fur', 3),
   limited('PG2', 'C3', 68, 'prefGlow', '発光への好み2', 0.3),
   poly('SZ4', 'C3', 75, 'size', 4),
@@ -238,6 +242,11 @@ const TAIL_KEYS = LOCI.filter((l) => l.trait === 'tail').map((l) => INDEX[l.key]
 const PREF_TAIL_KEYS = LOCI.filter((l) => l.trait === 'prefTail').map((l) => INDEX[l.key]);
 const PREF_GLOW_KEYS = LOCI.filter((l) => l.trait === 'prefGlow').map((l) => INDEX[l.key]);
 const METAB_KEYS = LOCI.filter((l) => l.trait === 'metab').map((l) => INDEX[l.key]);
+const DISP_M_KEYS = LOCI.filter((l) => l.trait === 'dispM').map((l) => INDEX[l.key]);
+const DISP_F_KEYS = LOCI.filter((l) => l.trait === 'dispF').map((l) => INDEX[l.key]);
+
+// 限性の形質が表に出る性
+export const TRAIT_SEX = { tail: 'M', prefTail: 'F', prefGlow: 'F', dispM: 'M', dispF: 'F' };
 
 const DMI_IDX = DMI_PAIRS.map(([a, b]) => [INDEX[a], INDEX[b]]);
 
@@ -416,12 +425,18 @@ export function express(genome) {
   for (const i of DEL_KEYS) if (genome.m[i] === 'd' && genome.p[i] === 'd') load++;
 
   const fertility = dmiFertility(genome);
+  // 大人になるときに旅立つ距離（0〜1）。オスとメスで別々の遺伝子座
+  const dispMGene = polyValue(genome, DISP_M_KEYS);
+  const dispFGene = polyValue(genome, DISP_F_KEYS);
 
   return {
     color,
     pattern,
     ear,
     fertility,
+    dispMGene,
+    dispFGene,
+    dispersal: male ? dispMGene : dispFGene,
     tailGene,
     tail: male ? tailGene : 0, // メスの尾は常に短い
     prefTailGene,
@@ -473,7 +488,7 @@ export function locusEffect(key, genome, pheno) {
     case 'sexlimited': {
       const plus = al.filter((a) => a === '+').length;
       const male = isMaleGenome(genome);
-      const shows = (locus.trait === 'tail') === male;
+      const shows = (TRAIT_SEX[locus.trait] === 'M') === male;
       return shows ? `＋${plus}` : `＋${plus}（${male ? 'オス' : 'メス'}には現れない）`;
     }
     case 'polygenic': {
@@ -503,6 +518,8 @@ export const POLYGENIC_TRAITS = [
   { trait: 'tail', label: '尾の長さ', sex: 'M' },
   { trait: 'prefTail', label: '長い尾への好み', sex: 'F' },
   { trait: 'prefGlow', label: '発光への好み', sex: 'F' },
+  { trait: 'dispM', label: 'オスの旅立ち', sex: 'M' },
+  { trait: 'dispF', label: 'メスの旅立ち', sex: 'F' },
 ].map((t) => ({ ...t, loci: LOCI.filter((l) => l.trait === t.trait).map((l) => l.key) }));
 
 // 量的形質ごとに、全遺伝子座を合わせた「＋」の数と、その割合（0〜1）
