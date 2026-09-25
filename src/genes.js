@@ -415,6 +415,31 @@ export function locusEffect(key, genome, pheno) {
   }
 }
 
+// 量的形質（複数の遺伝子座の合計で決まる形質）の一覧。sex は、その形質が表に出る性（null なら両方）
+export const POLYGENIC_TRAITS = [
+  { trait: 'size', label: '体格', sex: null },
+  { trait: 'fur', label: '毛皮の厚さ', sex: null },
+  { trait: 'metab', label: '代謝の速さ', sex: null },
+  { trait: 'tail', label: '尾の長さ', sex: 'M' },
+  { trait: 'prefTail', label: '長い尾への好み', sex: 'F' },
+  { trait: 'prefGlow', label: '発光への好み', sex: 'F' },
+].map((t) => ({ ...t, loci: LOCI.filter((l) => l.trait === t.trait).map((l) => l.key) }));
+
+// 量的形質ごとに、全遺伝子座を合わせた「＋」の数と、その割合（0〜1）
+export function polygenicSummary(genome) {
+  return POLYGENIC_TRAITS.map((t) => {
+    let plus = 0;
+    let copies = 0;
+    for (const key of t.loci) {
+      for (const a of allelesAt(genome, key)) {
+        copies++;
+        if (a === '+') plus++;
+      }
+    }
+    return { ...t, plus, copies, value: copies ? plus / copies : 0 };
+  });
+}
+
 export function isCarrier(key, genome) {
   const locus = LOCUS[key];
   if (!['lethal', 'deleterious', 'xlinked'].includes(locus.mode)) return false;

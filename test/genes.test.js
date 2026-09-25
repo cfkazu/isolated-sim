@@ -181,3 +181,14 @@ test('代謝はポリジーンで 0.8〜1.2', () => {
   assert.ok(Math.abs(high.metabolism - 1.2) < 1e-9);
   assert.ok(Math.abs(mid.metabolism - 1.0) < 1e-9);
 });
+
+test('量的形質のまとめ: 全遺伝子座の「＋」を合計する（オスの X 連鎖座は 1 本）', async () => {
+  const { polygenicSummary } = await import('../src/genes.js');
+  const m = genome('M', { TL1: ['+', '+'], TL2: ['+', '-'], TL3: ['-', '-'], TL4: ['+', null] });
+  const tail = polygenicSummary(m).find((t) => t.trait === 'tail');
+  assert.equal(tail.plus, 4);
+  assert.equal(tail.copies, 7);
+  assert.ok(Math.abs(tail.value - express(m).tailGene) < 1e-9);
+  const f = genome('F', { TL4: ['+', '+'] });
+  assert.equal(polygenicSummary(f).find((t) => t.trait === 'tail').copies, 8);
+});

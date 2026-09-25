@@ -10,6 +10,8 @@ import {
   isCarrier,
   predictOffspring,
   COLOR_LABEL,
+  POLYGENIC_TRAITS,
+  polygenicSummary,
   PATTERN_LABEL,
   EAR_LABEL,
   tailLabel,
@@ -144,6 +146,7 @@ export function renderCreaturePanel(el, world, c, pinned) {
       <dt>父</dt><dd>${c.founder ? '（創始者）' : who(father)}</dd>
       <dt>母</dt><dd>${c.founder ? '（創始者）' : who(mother)}</dd>
     </dl>
+    ${c.genome ? `<h3>量的形質のまとめ（複数の遺伝子座の合計）</h3>${polygenicTable(c)}` : ''}
     <h3>遺伝子型</h3>
     ${
       c.genome
@@ -156,6 +159,31 @@ export function renderCreaturePanel(el, world, c, pinned) {
     }
   `;
   drawCreature(el.querySelector('#portrait'), c, 160, 104);
+}
+
+// 量的形質ごとに「＋」がいくつあるか、それがどんな値として表に出ているかをまとめる
+function polygenicTable(c) {
+  const ph = c.pheno;
+  const shown = (t, text) => {
+    if (t.sex && t.sex !== c.sex) return `<span class="muted">${t.sex === 'M' ? 'オス' : 'メス'}だけに現れる（この個体は運ぶだけ）</span>`;
+    return text;
+  };
+  const effect = {
+    size: (t) => shown(t, `遺伝的には ${(0.7 + 0.6 * t.value).toFixed(2)}、実際は ${ph.size.toFixed(2)}（栄養など環境の影響も受ける）`),
+    fur: (t) => shown(t, `毛皮 ${pct(t.value)}`),
+    metab: (t) => shown(t, `代謝 ${ph.metabolism.toFixed(2)}（0.8〜1.2）`),
+    tail: (t) => shown(t, `尾 ${pct(t.value)}（見栄えは栄養状態しだいで ${pct(tailDisplay(c))}）`),
+    prefTail: (t) => shown(t, `長い尾を好む強さ ${pct(t.value)}`),
+    prefGlow: (t) => shown(t, `発光を好む強さ ${pct(t.value)}`),
+  };
+  return `<table><thead><tr><th>形質</th><th>＋の数</th><th>合計</th><th>表に出る値</th></tr></thead><tbody>${polygenicSummary(c.genome)
+    .map(
+      (t) => `<tr><td>${t.label}<div class="muted small">${t.loci.length} 座</div></td>
+        <td class="genotype">${t.plus} / ${t.copies}</td>
+        <td><div class="bars"><div class="track"><div class="fill" style="width:${t.value * 100}%"></div></div></div>${pct(t.value)}</td>
+        <td class="small">${effect[t.trait](t)}</td></tr>`,
+    )
+    .join('')}</tbody></table>`;
 }
 
 function renderPrediction(world, mother, father) {
@@ -409,6 +437,9 @@ export class GenesPanel {
       <div id="locus-chart"></div>
       <h3>遺伝子型：観測数とハーディー・ワインベルグ期待数</h3>
       <div id="hw-table"></div>
+      <h3>量的形質（複数の遺伝子座の合計）の分布（現在）</h3>
+      <p class="small muted">全遺伝子座を合わせた「＋」の数で個体を数えた分布。左端が＋0（最も小さい・短い・弱い）、右端がすべて＋。</p>
+      <div id="poly-traits"></div>
       <h3>全遺伝子座の対立遺伝子頻度（現在）</h3>
       <div id="all-loci"></div>`;
     this.chart = new Chart(el.querySelector('#locus-chart'), {
@@ -452,6 +483,26 @@ export class GenesPanel {
           })
           .join('')}</tbody></table>
         <p class="muted small">二倍体 ${diploids} 匹。ヘテロ接合体が期待より少ないのは、近親交配や島内の地域的な分断（ワーランド効果）のサイン。</p>`
+      : '';
+
+    // 量的形質の分布：「＋」の数ごと（0〜遺伝子座数×2）に個体を数える
+    const alive = world.creatures.filter((c) => c.genome);
+    const sums = alive.map((c) => polygenicSummary(c.genome));
+    this.el.querySelector('#poly-traits').innerHTML = alive.length
+      ? `<table><thead><tr><th>形質</th><th class="num">平均</th><th>分布</th></tr></thead><tbody>${POLYGENIC_TRAITS.map((t, ti) => {
+          const bins = t.loci.length * 2 + 1;
+          const hist = new Array(bins).fill(0);
+          let sum = 0;
+          for (const row of sums) {
+            const v = row[ti].value;
+            sum += v;
+            hist[Math.round(v * (bins - 1))]++;
+          }
+          const max = Math.max(1, ...hist);
+          const who = t.sex ? `（${t.sex === 'M' ? 'オス' : 'メス'}に現れる）` : '';
+          return `<tr><td>${t.label}<div class="muted small">${t.loci.length} 座${who}</div></td><td class="num">${pct(sum / alive.length)}</td>
+            <td><div class="hist">${hist.map((n, k) => `<span style="height:${(n / max) * 100}%" title="＋${k}：${n} 匹"></span>`).join('')}</div></td></tr>`;
+        }).join('')}</tbody></table>`
       : '';
 
     this.el.querySelector('#all-loci').innerHTML = `<table><thead><tr><th>遺伝子座</th><th>頻度</th><th></th></tr></thead><tbody>${LOCI.map((l) => {

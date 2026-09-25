@@ -910,3 +910,19 @@ td .bars .track {
   text-align: left;
   line-height: inherit;
 }
+
+.hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+  min-width: 96px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hist span {
+  flex: 1;
+  min-height: 1px;
+  background: var(--series-1);
+  border-radius: 2px 2px 0 0;
+}
