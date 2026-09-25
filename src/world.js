@@ -21,6 +21,7 @@ export const DEFAULTS = {
   initialCount: 100,
   fertility: 1.0, // 草の育ちやすさ（島の豊かさ）
   islandShape: 'single', // 島の形：'single'（ひとつの島）・'islets'（離島のある島）・'archipelago'（群島）
+  geology: 'auto', // 地質：'auto'（シードで決まる）・'lush'・'volcanic'・'coral'
   maxAgeYears: 15, // この年齢で必ず死ぬ
   maturityMonths: 24,
   mutationRate: 0.0005, // 1 配偶子・1 遺伝子座あたり
@@ -88,8 +89,10 @@ export class World {
   constructor(options = {}) {
     this.opts = { ...DEFAULTS, ...options };
     this.rng = createRng(this.opts.seed);
+    const geology = this.opts.geology === 'auto' ? this.rng.pick(['lush', 'volcanic', 'coral']) : this.opts.geology;
     this.island = generateIsland(this.rng, {
       shape: this.opts.islandShape,
+      geology,
       namer: (id) => `${makeName(this.opts.seed, `isle${id}`)}島`,
     });
     this.pedigree = new Pedigree();
@@ -145,7 +148,7 @@ export class World {
     this.cohort = [];
     this._recordYear();
     this._startCohort();
-    this.addLog(`🏝️ ${n} 匹の生物が島に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
+    this.addLog(`🏝️ ${n} 匹の生物が${this.island.geology.label}に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
   }
 
   get year() {
@@ -519,10 +522,10 @@ export class World {
   _breed() {
     const o = this.opts;
     const rng = this.rng;
-    const males = this.creatures.filter((c) => c.alive && c.sex === 'M' && c.age >= o.maturityMonths);
+    const males = this.creatures.filter((c) => c.alive && c.sex === 'M' && c.age >= this.maturityOf(c));
     if (males.length === 0) return;
     const females = this.creatures.filter(
-      (c) => c.alive && c.sex === 'F' && c.age >= o.maturityMonths && c.lastBredYear !== this.year,
+      (c) => c.alive && c.sex === 'F' && c.age >= this.maturityOf(c) && c.lastBredYear !== this.year,
     );
     for (const f of females) {
       // やせ細ったメスは繁殖しない。選り好みの強いメスほど相手探しに時間がかかる
@@ -571,6 +574,11 @@ export class World {
       this.counters.births += born;
       if (F >= 0.125) this.counters.inbredBirths += born;
     }
+  }
+
+  // 成熟する年齢：代謝が遅い（燃費のいい）体ほど育つのに時間がかかる
+  maturityOf(c) {
+    return Math.round(this.opts.maturityMonths / c.pheno.metabolism);
   }
 
   _chooseMate(f, males) {

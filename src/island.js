@@ -26,8 +26,49 @@ function makeNoise(rng, W, H, cell) {
 // 標高（height）は本島の最高点を 1、海面を 0 とした値。海の中は負（深さ）。
 // 地形（砂浜・草原・森・岩場・海）は、標高と海面（seaLevel）と湿り気から毎回決め直せるので、
 // 海面の上下（寒冷期の陸橋）や、プレイヤーによる地形の編集に対応できる。
-const BEACH_BAND = 0.07;
-const ROCK_ABOVE = 0.78;
+// 地質：地面の色と、砂浜・岩場の広さ、そこに生える草の量を島ごとに変える。
+// 背景の色が変われば、目立たない体色も変わる（火山島なら黒、サンゴ礁の島なら白が有利になりうる）。
+export const GEOLOGY = {
+  lush: {
+    label: '緑の島',
+    desc: '草原と森が広がる。緑が目立たない。',
+    sand: [226, 210, 160],
+    rock: [138, 134, 126],
+    soil: [96, 74, 52],
+    beachBand: 0.07,
+    rockAbove: 0.78,
+    forestBias: 0,
+    beachCap: 0.12,
+    rockCap: 0.08,
+  },
+  volcanic: {
+    label: '火山島',
+    desc: '黒い砂浜と、まばらに草の生えた黒い溶岩台地が広い。黒が目立たない。',
+    sand: [62, 60, 58],
+    rock: [52, 50, 50],
+    soil: [70, 56, 44],
+    beachBand: 0.08,
+    rockAbove: 0.5,
+    forestBias: 0.04,
+    beachCap: 0.15,
+    rockCap: 0.4,
+  },
+  coral: {
+    label: 'サンゴ礁の島',
+    desc: '白い砂浜と白い石灰岩が広く、乾いて白っぽい草が生える。森は少ない。白が目立たない。',
+    sand: [240, 236, 222],
+    rock: [214, 208, 192],
+    soil: [214, 204, 176],
+    // 乾いて日に焼けた、白っぽい草
+    grass: [196, 196, 150],
+    forest: [150, 160, 112],
+    beachBand: 0.16,
+    rockAbove: 0.7,
+    forestBias: -0.12,
+    beachCap: 0.4,
+    rockCap: 0.2,
+  },
+};
 
 export const ISLAND_SHAPES = {
   single: { label: 'ひとつの島', desc: '大きな島がひとつ。' },
@@ -35,9 +76,9 @@ export const ISLAND_SHAPES = {
   archipelago: { label: '群島', desc: '中くらいの島が 4〜6 個。最初の個体は島の広さに応じて散らばる。浅い海峡は氷期に陸橋になる。' },
 };
 
-export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer = null } = {}) {
-  if (shape === 'archipelago') return generateArchipelago(rng, W, H, namer);
-  const island = generateSingle(rng, W, H, shape === 'islets' ? 1.05 : 0.75, namer);
+export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer = null, geology = 'lush' } = {}) {
+  if (shape === 'archipelago') return generateArchipelago(rng, W, H, namer, geology);
+  const island = generateSingle(rng, W, H, shape === 'islets' ? 1.05 : 0.75, namer, geology);
   if (shape === 'islets') {
     const n = 2 + rng.int(2);
     for (let k = 0; k < n; k++) {
@@ -49,7 +90,7 @@ export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer 
 }
 
 // 群島：いくつかの高まりを散らし、ある程度の大きさ（150 マス以上）の陸地をすべて島として残す
-function generateArchipelago(rng, W, H, namer) {
+function generateArchipelago(rng, W, H, namer, geology) {
   const octaves = [
     [makeNoise(rng, W, H, 30), 0.55],
     [makeNoise(rng, W, H, 12), 0.3],
@@ -92,11 +133,11 @@ function generateArchipelago(rng, W, H, namer) {
       moisture[i] = moistNoise(x, y);
     }
   }
-  return new Island(W, H, height, moisture, namer);
+  return new Island(W, H, height, moisture, namer, geology);
 }
 
 // ひとつの島。falloff が大きいほど島は小さくなる（離島の島では本島を少し小さくして沖を空ける）
-function generateSingle(rng, W, H, falloff, namer) {
+function generateSingle(rng, W, H, falloff, namer, geology) {
   const octaves = [
     [makeNoise(rng, W, H, 40), 0.55],
     [makeNoise(rng, W, H, 18), 0.3],
@@ -135,7 +176,7 @@ function generateSingle(rng, W, H, falloff, namer) {
       moisture[i] = moistNoise(x, y);
     }
   }
-  return new Island(W, H, height, moisture, namer);
+  return new Island(W, H, height, moisture, namer, geology);
 }
 
 // 4 近傍でつながった領域に番号をふる
@@ -166,12 +207,14 @@ function labelComponents(W, H, isIn) {
 }
 
 export class Island {
-  constructor(W, H, height, moisture, namer = null) {
+  constructor(W, H, height, moisture, namer = null, geology = 'lush') {
     this.W = W;
     this.H = H;
     this.elevation = height; // 名前は昔のまま（標高）。海は負
     this.moisture = moisture;
     this.seaLevel = 0;
+    this.geologyKey = geology;
+    this.geology = GEOLOGY[geology] ?? GEOLOGY.lush;
     this.terrain = new Uint8Array(W * H);
     this.landmass = new Int32Array(W * H).fill(-1); // 陸地のつながりの番号（海は -1）
     this.landmasses = []; // { id, size, name, cx, cy }
@@ -210,14 +253,15 @@ export class Island {
   // 標高・海面・湿り気から地形を決め直し、陸地のつながりに番号と名前をふり直す
   reclassify() {
     const { W, H, elevation: h, moisture, terrain, seaLevel } = this;
+    const { beachBand, rockAbove, forestBias } = this.geology;
     this.landCells = [];
     for (let i = 0; i < W * H; i++) {
       const e = h[i] - seaLevel;
       let t;
       if (e <= 0) t = TERRAIN.SEA;
-      else if (e < BEACH_BAND) t = TERRAIN.BEACH;
-      else if (h[i] > ROCK_ABOVE) t = TERRAIN.ROCK;
-      else if (moisture[i] + h[i] * 0.35 > 0.72) t = TERRAIN.FOREST;
+      else if (e < beachBand) t = TERRAIN.BEACH;
+      else if (h[i] > rockAbove) t = TERRAIN.ROCK;
+      else if (moisture[i] + forestBias + h[i] * 0.35 > 0.72) t = TERRAIN.FOREST;
       else t = TERRAIN.GRASS;
       terrain[i] = t;
       if (t !== TERRAIN.SEA) this.landCells.push(i);

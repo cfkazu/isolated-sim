@@ -28,7 +28,7 @@ import {
   SELECTION_T,
 } from '../stats.js';
 import { DEATH_CAUSES, DEFAULTS, CLIMATE_AMPLITUDE, tailDisplay, glowDisplay } from '../world.js';
-import { TERRAIN_LABEL, ISLAND_SHAPES } from '../island.js';
+import { TERRAIN_LABEL, ISLAND_SHAPES, GEOLOGY } from '../island.js';
 import { createRng } from '../rng.js';
 import { Chart, resolveColor } from './charts.js';
 import { bodyColor } from './map.js';
@@ -688,6 +688,14 @@ export function renderSettings(el, opts, onChange, onRestart) {
       .map(([k, v]) => `<option value="${k}" ${o.islandShape === k ? 'selected' : ''}>${v.label}</option>`)
       .join('')}</select></label>
     <p class="hint">${Object.values(ISLAND_SHAPES)
+      .map((v) => `<strong>${v.label}</strong>：${v.desc}`)
+      .join('<br>')}</p>
+    <label class="field">地質<select name="geology">
+      <option value="auto" ${o.geology === 'auto' ? 'selected' : ''}>おまかせ（シードで決まる）</option>
+      ${Object.entries(GEOLOGY)
+        .map(([k, v]) => `<option value="${k}" ${o.geology === k ? 'selected' : ''}>${v.label}</option>`)
+        .join('')}</select></label>
+    <p class="hint">${Object.values(GEOLOGY)
       .map((v) => `<strong>${v.label}</strong>：${v.desc}`)
       .join('<br>')}</p>
     <label class="field">最初の個体数<input type="number" name="initialCount" min="2" max="1000" value="${o.initialCount}"></label>

@@ -12,12 +12,10 @@ const ROOT = 0.1;
 const REGROW = 0.3; // 食べ尽くされた草が伸び直す勢い（上限のこの割合ぶん草があるのと同じ速さで育つ） // 島のマス 4×4 を 1 つの草のマスにまとめる
 
 // 地面の色（RGB）。地図の描画にもこの色を使うので、画面で見える色 = 捕食者が見る色。
+// 砂浜・岩場・土の色は島の地質（island.js の GEOLOGY）で決まる。
 export const GROUND_RGB = {
-  sand: [226, 210, 160],
-  soil: [96, 74, 52],
   grass: [112, 172, 72],
   forest: [48, 104, 46],
-  rock: [138, 134, 126],
   snow: [245, 247, 250],
 };
 
@@ -27,13 +25,11 @@ export const BODY_RGB = {
   white: [236, 232, 220],
 };
 
-// 草が育つ上限（草原を 1 とする）
+// 草が育つ上限（草原を 1 とする）。砂浜と岩場は島の地質で決まる
 const TERRAIN_CAP = {
   [TERRAIN.SEA]: 0,
-  [TERRAIN.BEACH]: 0.12,
   [TERRAIN.GRASS]: 1.0,
   [TERRAIN.FOREST]: 0.75,
-  [TERRAIN.ROCK]: 0.08,
 };
 
 const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -71,7 +67,8 @@ export class Vegetation {
       for (let x = 0; x < island.W; x++) {
         const f = Math.floor(y / FOOD_CELL) * this.FW + Math.floor(x / FOOD_CELL);
         const i = y * island.W + x;
-        cap[f] += TERRAIN_CAP[island.terrain[i]];
+        const t = island.terrain[i];
+        cap[f] += t === TERRAIN.BEACH ? island.geology.beachCap : t === TERRAIN.ROCK ? island.geology.rockCap : TERRAIN_CAP[t];
         count[f]++;
         if (island.terrain[i] !== TERRAIN.SEA) {
           elev[f] += island.elevation[i];
@@ -174,10 +171,12 @@ export function groundOfCell(world, i) {
   const island = world.island;
   const t = island.terrain[i];
   if (t !== TERRAIN.BEACH && t !== TERRAIN.SEA && world.localTemp(island.elevation[i]) < 0) return GROUND_RGB.snow;
-  if (t === TERRAIN.BEACH) return GROUND_RGB.sand;
-  if (t === TERRAIN.ROCK) return GROUND_RGB.rock;
-  const frac = world.vegetation.smoothFraction(i);
-  return lerp3(GROUND_RGB.soil, t === TERRAIN.FOREST ? GROUND_RGB.forest : GROUND_RGB.grass, Math.min(1, frac * 1.15));
+  const g = island.geology;
+  if (t === TERRAIN.BEACH) return g.sand;
+  const frac = Math.min(1, world.vegetation.smoothFraction(i) * 1.15);
+  // 岩場にもまばらに草が生える島がある（火山島の溶岩台地など）
+  if (t === TERRAIN.ROCK) return g.rockCap > 0.2 ? lerp3(g.rock, GROUND_RGB.grass, frac * g.rockCap) : g.rock;
+  return lerp3(g.soil, t === TERRAIN.FOREST ? (g.forest ?? GROUND_RGB.forest) : (g.grass ?? GROUND_RGB.grass), frac);
 }
 
 // 捕食者の個体群。個体としては動かさず、数だけを持つ。
