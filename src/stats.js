@@ -86,7 +86,7 @@ export function genotypeTable(creatures, key, freqs) {
 export function phenotypeSummary(creatures) {
   const color = { black: 0, green: 0, white: 0 };
   const pattern = { spots: 0, stripes: 0, both: 0, plain: 0 };
-  const tail = [0, 0, 0];
+  const ear = [0, 0, 0];
   let glowM = 0;
   let glowF = 0;
   let size = 0;
@@ -97,7 +97,7 @@ export function phenotypeSummary(creatures) {
     const ph = c.pheno;
     color[ph.color]++;
     pattern[ph.pattern]++;
-    tail[ph.tail]++;
+    ear[ph.ear]++;
     if (ph.glow) c.sex === 'M' ? glowM++ : glowF++;
     size += ph.size;
     fur += ph.fur;
@@ -105,5 +105,52 @@ export function phenotypeSummary(creatures) {
     if (ph.load > 0) sick++;
   }
   const n = Math.max(1, creatures.length);
-  return { color, pattern, tail, glowM, glowF, meanSize: size / n, meanFur: fur / n, resistant, sick };
+  return { color, pattern, ear, glowM, glowF, meanSize: size / n, meanFur: fur / n, resistant, sick };
+}
+
+function correlation(xs, ys) {
+  const n = xs.length;
+  if (n < 3) return 0;
+  let mx = 0;
+  let my = 0;
+  for (let i = 0; i < n; i++) {
+    mx += xs[i];
+    my += ys[i];
+  }
+  mx /= n;
+  my /= n;
+  let sxy = 0;
+  let sxx = 0;
+  let syy = 0;
+  for (let i = 0; i < n; i++) {
+    sxy += (xs[i] - mx) * (ys[i] - my);
+    sxx += (xs[i] - mx) ** 2;
+    syy += (ys[i] - my) ** 2;
+  }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0;
+}
+
+// 性選択の指標。遺伝子の値は雌雄とも持っているので、全個体で平均と相関をとる。
+// 飾りの遺伝子と好みの遺伝子の正の相関は、ランナウェイ（両者が一緒に広まる）の手がかり。
+export function sexualSelectionStats(creatures) {
+  const tail = [];
+  const prefT = [];
+  const glowAllele = [];
+  const prefG = [];
+  const gi = INDEX.GLW;
+  for (const c of creatures) {
+    tail.push(c.pheno.tailGene);
+    prefT.push(c.pheno.prefTailGene);
+    prefG.push(c.pheno.prefGlowGene);
+    const copies = [c.genome.m[gi], c.genome.p[gi]].filter((a) => a !== null);
+    glowAllele.push(copies.filter((a) => a === 'g').length / copies.length);
+  }
+  const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+  return {
+    tail: mean(tail),
+    prefTail: mean(prefT),
+    prefGlow: mean(prefG),
+    corrTail: correlation(tail, prefT),
+    corrGlow: correlation(glowAllele, prefG),
+  };
 }

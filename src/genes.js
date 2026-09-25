@@ -17,7 +17,12 @@ export const INHERITANCE = {
   incomplete: {
     label: '不完全優性（中間遺伝）',
     short: '不完全優性',
-    desc: '長 L と短 S に優劣がなく、L/S は中間の長さになる。マルバアサガオの花色（赤×白→桃）と同じ。自然選択に関わらない「中立」な形質なので、遺伝的浮動だけで頻度が揺れる様子を観察できる。',
+    desc: '立ち耳 U と垂れ耳 F に優劣がなく、U/F は半立ちの中間になる。マルバアサガオの花色（赤×白→桃）と同じ。生死にも好みにも関わらない「中立」な形質なので、遺伝的浮動だけで頻度が揺れる様子を観察できる。',
+  },
+  sexlimited: {
+    label: '限性遺伝（ポリジーン）',
+    short: '限性',
+    desc: '両方の性が遺伝子を持ち子に伝えるが、片方の性にしか現れない。尾の長さ（4 座）はオスだけに、好みの強さはメスだけに現れる。メスは長い尾の遺伝子を、オスは好みの遺伝子を、表に出さずに運んでいる。',
   },
   polygenic: {
     label: '量的形質（ポリジーン）',
@@ -27,7 +32,7 @@ export const INHERITANCE = {
   xlinked: {
     label: '伴性遺伝（X 連鎖劣性）',
     short: '伴性',
-    desc: '発光遺伝子 g は X 染色体上にある劣性遺伝子。オス（XY）は 1 本で発光するが、メスは g/g でないと発光しない。g/N のメスは「保因者」。オスの X は必ず母親由来。',
+    desc: '発光遺伝子 g は X 染色体上にある劣性遺伝子。オス（XY）は 1 本で発光するが、メスは g/g でないと発光しない。g/N のメスは「保因者」。オスの X は必ず母親由来。発光は捕食者に目立つが、発光を好むメスには魅力的に映る。',
   },
   overdominant: {
     label: '超優性（ヘテロ接合体優位）',
@@ -62,6 +67,19 @@ const poly = (key, chr, pos, trait, n) => ({
   trait,
   alleles: ['+', '-'],
   freq: [0.5, 0.5],
+  labels: { '+': '増', '-': '減' },
+});
+
+// 限性のポリジーン：尾の長さ（オスに現れる）と好みの強さ（メスに現れる）
+const limited = (key, chr, pos, trait, name, freq) => ({
+  key,
+  chr,
+  pos,
+  name,
+  mode: 'sexlimited',
+  trait,
+  alleles: ['+', '-'],
+  freq: [freq, 1 - freq],
   labels: { '+': '増', '-': '減' },
 });
 
@@ -100,7 +118,9 @@ export const LOCI = [
     labels: { L: '正常', l: '致死' },
     lof: true,
   },
+  limited('TL1', 'C1', 30, 'tail', '尾の長さ1', 0.4),
   poly('SZ1', 'C1', 45, 'size', 1),
+  limited('PT1', 'C1', 60, 'prefTail', '尾への好み1', 0.3),
   poly('FR1', 'C1', 80, 'fur', 1),
   del('DL1', 'C1', 110, 1),
   {
@@ -113,17 +133,20 @@ export const LOCI = [
     freq: [0.25, 0.25, 0.5],
     labels: { S: '斑点', T: '縞', o: '無地' },
   },
+  limited('PG1', 'C2', 25, 'prefGlow', '発光への好み1', 0.3),
   {
-    key: 'TAL',
+    key: 'EAR',
     chr: 'C2',
     pos: 40,
-    name: '尾の長さ',
+    name: '耳の形',
     mode: 'incomplete',
-    alleles: ['L', 'S'],
+    alleles: ['U', 'F'],
     freq: [0.5, 0.5],
-    labels: { L: '長', S: '短' },
+    labels: { U: '立ち', F: '垂れ' },
   },
+  limited('TL2', 'C2', 55, 'tail', '尾の長さ2', 0.4),
   poly('SZ2', 'C2', 65, 'size', 2),
+  limited('PT2', 'C2', 80, 'prefTail', '尾への好み2', 0.3),
   del('DL2', 'C2', 92, 2),
   {
     key: 'VIT',
@@ -135,11 +158,15 @@ export const LOCI = [
     freq: [0.6, 0.4],
     labels: { A: 'A型', B: 'B型' },
   },
+  limited('TL3', 'C3', 25, 'tail', '尾の長さ3', 0.4),
   poly('SZ3', 'C3', 35, 'size', 3),
+  limited('PT3', 'C3', 45, 'prefTail', '尾への好み3', 0.3),
   poly('FR2', 'C3', 50, 'fur', 2),
   poly('FR3', 'C3', 62, 'fur', 3),
+  limited('PG2', 'C3', 68, 'prefGlow', '発光への好み2', 0.3),
   poly('SZ4', 'C3', 75, 'size', 4),
   del('DL3', 'C3', 85, 3),
+  limited('TL4', 'X', 60, 'tail', '尾の長さ4', 0.4),
   {
     key: 'GLW',
     chr: 'X',
@@ -171,6 +198,26 @@ export const CHR_LOCI = Object.fromEntries(
 const SIZE_KEYS = LOCI.filter((l) => l.trait === 'size').map((l) => INDEX[l.key]);
 const FUR_KEYS = LOCI.filter((l) => l.trait === 'fur').map((l) => INDEX[l.key]);
 const DEL_KEYS = LOCI.filter((l) => l.mode === 'deleterious').map((l) => INDEX[l.key]);
+const TAIL_KEYS = LOCI.filter((l) => l.trait === 'tail').map((l) => INDEX[l.key]);
+const PREF_TAIL_KEYS = LOCI.filter((l) => l.trait === 'prefTail').map((l) => INDEX[l.key]);
+const PREF_GLOW_KEYS = LOCI.filter((l) => l.trait === 'prefGlow').map((l) => INDEX[l.key]);
+
+// ポリジーンの値：「＋」の割合（0〜1）。オスの X 連鎖座は 1 本だけ数える。
+function polyValue(genome, idxs) {
+  let plus = 0;
+  let copies = 0;
+  for (const i of idxs) {
+    for (const a of [genome.m[i], genome.p[i]]) {
+      if (a === null) continue;
+      copies++;
+      if (a === '+') plus++;
+    }
+  }
+  return copies ? plus / copies : 0;
+}
+
+// オスは X 連鎖座の父由来側が null（Y 染色体）
+export const isMaleGenome = (genome) => genome.p[INDEX.GLW] === null;
 
 function sampleAllele(locus, rng) {
   const i = rng.weightedIndex(locus.freq);
@@ -261,7 +308,12 @@ export function express(genome) {
   const hasT = pat.includes('T');
   const pattern = hasS && hasT ? 'both' : hasS ? 'spots' : hasT ? 'stripes' : 'plain';
 
-  const tail = countOf(genome, INDEX.TAL, 'L');
+  const ear = countOf(genome, INDEX.EAR, 'U');
+  const male = isMaleGenome(genome);
+  // 限性遺伝：遺伝子の値（tailGene など）は雌雄とも持つが、表に出るのは片方の性だけ
+  const tailGene = polyValue(genome, TAIL_KEYS);
+  const prefTailGene = polyValue(genome, PREF_TAIL_KEYS);
+  const prefGlowGene = polyValue(genome, PREF_GLOW_KEYS);
 
   let sizePlus = 0;
   for (const i of SIZE_KEYS) sizePlus += countOf(genome, i, '+');
@@ -281,7 +333,23 @@ export function express(genome) {
   let load = 0;
   for (const i of DEL_KEYS) if (genome.m[i] === 'd' && genome.p[i] === 'd') load++;
 
-  return { color, pattern, tail, size, fur, glow, resistance, lethal, load };
+  return {
+    color,
+    pattern,
+    ear,
+    tailGene,
+    tail: male ? tailGene : 0, // メスの尾は常に短い
+    prefTailGene,
+    prefGlowGene,
+    prefTail: male ? 0 : prefTailGene,
+    prefGlow: male ? 0 : prefGlowGene,
+    size,
+    fur,
+    glow,
+    resistance,
+    lethal,
+    load,
+  };
 }
 
 // "G/w" のような表記。優性側を先に、オスの X 連鎖座は "g/Y"。
@@ -297,7 +365,12 @@ export function genotypeString(genome, key) {
 
 export const COLOR_LABEL = { black: '黒', green: '緑', white: '白' };
 export const PATTERN_LABEL = { spots: '斑点', stripes: '縞', both: '斑点＋縞', plain: '無地' };
-export const TAIL_LABEL = ['短い', '中くらい', '長い'];
+export const EAR_LABEL = ['垂れ耳', '半立ち耳', '立ち耳'];
+
+export function tailLabel(pheno) {
+  if (pheno.tail === 0) return '短い（メス）';
+  return `長さ ${Math.round(pheno.tail * 100)}`;
+}
 
 // 遺伝子座ごとの表現型（効果）の説明
 export function locusEffect(key, genome, pheno) {
@@ -310,7 +383,13 @@ export function locusEffect(key, genome, pheno) {
     case 'codominant':
       return PATTERN_LABEL[pheno.pattern];
     case 'incomplete':
-      return `尾が${TAIL_LABEL[pheno.tail]}`;
+      return EAR_LABEL[pheno.ear];
+    case 'sexlimited': {
+      const plus = al.filter((a) => a === '+').length;
+      const male = isMaleGenome(genome);
+      const shows = (locus.trait === 'tail') === male;
+      return shows ? `＋${plus}` : `＋${plus}（${male ? 'オス' : 'メス'}には現れない）`;
+    }
     case 'polygenic': {
       const plus = al.filter((a) => a === '+').length;
       return `＋${plus}`;
@@ -342,7 +421,9 @@ export function predictOffspring(mother, father, rng, n = 4000) {
     lethal: 0,
     color: { black: 0, green: 0, white: 0 },
     pattern: { spots: 0, stripes: 0, both: 0, plain: 0 },
-    tail: [0, 0, 0],
+    ear: [0, 0, 0],
+    tailM: 0,
+    prefTailF: 0,
     glowM: 0,
     males: 0,
     glowF: 0,
@@ -363,12 +444,14 @@ export function predictOffspring(mother, father, rng, n = 4000) {
     }
     out.color[ph.color]++;
     out.pattern[ph.pattern]++;
-    out.tail[ph.tail]++;
+    out.ear[ph.ear]++;
     if (z.sex === 'M') {
       out.males++;
+      out.tailM += ph.tail;
       if (ph.glow) out.glowM++;
     } else {
       out.females++;
+      out.prefTailF += ph.prefTail;
       if (ph.glow) out.glowF++;
     }
     if (ph.resistance > 0.8) out.resistant++;
@@ -379,6 +462,8 @@ export function predictOffspring(mother, father, rng, n = 4000) {
   const born = n - out.lethal;
   out.size /= Math.max(1, born);
   out.fur /= Math.max(1, born);
+  out.tailM /= Math.max(1, out.males);
+  out.prefTailF /= Math.max(1, out.females);
   out.born = born;
   return out;
 }

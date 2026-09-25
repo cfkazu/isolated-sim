@@ -28,7 +28,7 @@ renderSettings(
   (name, value) => {
     state.opts[name] = value;
     // 実行中の島にすぐ反映できるもの
-    if (['mutationRate', 'searchImage', 'glowPreference', 'inbreedingAvoidance', 'randomEvents'].includes(name)) {
+    if (['mutationRate', 'searchImage', 'inbreedingAvoidance', 'randomEvents'].includes(name)) {
       state.world.opts[name] = value;
     }
   },

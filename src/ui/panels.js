@@ -11,10 +11,11 @@ import {
   predictOffspring,
   COLOR_LABEL,
   PATTERN_LABEL,
-  TAIL_LABEL,
+  EAR_LABEL,
+  tailLabel,
 } from '../genes.js';
 import { alleleFrequencies, genotypeTable } from '../stats.js';
-import { DEATH_CAUSES, DEFAULTS } from '../world.js';
+import { DEATH_CAUSES, DEFAULTS, tailDisplay, glowDisplay } from '../world.js';
 import { TERRAIN_LABEL } from '../island.js';
 import { createRng } from '../rng.js';
 import { Chart, resolveColor } from './charts.js';
@@ -109,7 +110,12 @@ export function renderCreaturePanel(el, world, c, pinned) {
       <dt>年齢</dt><dd>${ageLabel(c.age)}（寿命 ${world.opts.maxAgeYears} 歳）</dd>
       <dt>世代</dt><dd>第 ${c.gen} 世代</dd>
       <dt>近交係数 F</dt><dd>${c.F.toFixed(4)} ${c.F >= 0.125 ? '<span class="badge warn">近親交配の子</span>' : ''}</dd>
-      <dt>見た目</dt><dd>${COLOR_LABEL[ph.color]}・${PATTERN_LABEL[ph.pattern]}・尾が${TAIL_LABEL[ph.tail]}${ph.glow ? '・<strong>発光</strong>' : ''}</dd>
+      <dt>見た目</dt><dd>${COLOR_LABEL[ph.color]}・${PATTERN_LABEL[ph.pattern]}・${EAR_LABEL[ph.ear]}${ph.glow ? '・<strong>発光</strong>' : ''}</dd>
+      ${
+        c.sex === 'M'
+          ? `<dt>飾り</dt><dd>尾の長さ ${pct(ph.tail)}（見栄え ${pct(tailDisplay(c))}）${ph.glow ? `・光の強さ ${pct(glowDisplay(c))}` : ''}</dd>`
+          : `<dt>好み</dt><dd>長い尾 ${pct(ph.prefTail)}・発光 ${pct(ph.prefGlow)}</dd>`
+      }
       <dt>体格 / 毛皮</dt><dd>${ph.size.toFixed(2)} / ${pct(ph.fur)}</dd>
       <dt>栄養状態</dt><dd>${pct(c.condition)}${c.alive && c.hunger > 0.2 ? ' <span class="badge warn">空腹</span>' : ''}</dd>
       <dt>免疫力</dt><dd>${pct(ph.resistance)}${ph.load ? ` <span class="badge warn">遺伝病 ×${ph.load}</span>` : ''}</dd>
@@ -159,7 +165,8 @@ function renderPrediction(world, mother, father) {
         <dt>致死（l/l）</dt><dd>${pct(p.lethal / p.n, 1)}</dd>
         <dt>体色</dt><dd>${dist(p.color, COLOR_LABEL)}</dd>
         <dt>模様</dt><dd>${dist(p.pattern, PATTERN_LABEL)}</dd>
-        <dt>尾</dt><dd>${dist({ 0: p.tail[0], 1: p.tail[1], 2: p.tail[2] }, TAIL_LABEL)}</dd>
+        <dt>耳</dt><dd>${dist({ 0: p.ear[0], 1: p.ear[1], 2: p.ear[2] }, EAR_LABEL)}</dd>
+        <dt>息子の尾 / 娘の尾への好み</dt><dd>${pct(p.tailM)} / ${pct(p.prefTailF)}</dd>
         <dt>発光</dt><dd>息子 ${pct(p.glowM / Math.max(1, p.males))}・娘 ${pct(p.glowF / Math.max(1, p.females))}</dd>
         <dt>免疫ヘテロ</dt><dd>${pct(p.resistant / born)}</dd>
         <dt>遺伝病</dt><dd>${pct(p.sick / born, 1)}</dd>
@@ -251,6 +258,29 @@ export class StatsPanel {
         { label: '免疫ヘテロの割合', color: '--series-3' },
       ],
     });
+    this.sexsel = new Chart(host, {
+      title: '性選択：飾りと好み',
+      desc: '尾はオスだけ、好みはメスだけに現れるが、遺伝子は雌雄とも持っている（全個体の遺伝子の値の平均）。',
+      yMax: 1,
+      format: (v) => pct(v),
+      series: [
+        { label: '尾の長さ', color: '--series-1' },
+        { label: '尾への好み', color: '--series-1', dash: true },
+        { label: '発光遺伝子の頻度', color: '--series-4' },
+        { label: '発光への好み', color: '--series-4', dash: true },
+      ],
+    });
+    this.corr = new Chart(host, {
+      title: '飾りと好みの遺伝的相関',
+      desc: '正の相関は、好むメスと飾りのあるオスの子が両方の遺伝子を受け継いでいるしるし。これが強まると飾りと好みが一緒に暴走する（ランナウェイ）。',
+      yMin: -0.5,
+      yMax: 1,
+      format: (v) => v.toFixed(2),
+      series: [
+        { label: '尾 × 尾への好み', color: '--series-1' },
+        { label: '発光 × 発光への好み', color: '--series-4' },
+      ],
+    });
     this.pred = new Chart(host, {
       title: '捕食者の数',
       desc: '獲物が増えると捕食者が増え、食べ尽くすと飢えて減る。0 になると島から消える（まれに海を越えて渡ってくる）。',
@@ -286,6 +316,10 @@ export class StatsPanel {
       H.map((h) => h.pheno.resistant / n(h)),
     ]);
     this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
+    const ss = (h, k) => h.sexsel?.[k] ?? 0;
+    const glowFreq = (h) => h.freqs.GLW.g;
+    this.sexsel.setData(xs, [H.map((h) => ss(h, 'tail')), H.map((h) => ss(h, 'prefTail')), H.map(glowFreq), H.map((h) => ss(h, 'prefGlow'))]);
+    this.corr.setData(xs, [H.map((h) => ss(h, 'corrTail')), H.map((h) => ss(h, 'corrGlow'))]);
     const hb = H.slice(1);
     this.births.setData(
       hb.map((h) => h.year),
@@ -318,7 +352,7 @@ export class StatsPanel {
   }
 
   redraw() {
-    for (const c of [this.pop, this.div, this.color, this.traits, this.pred, this.births]) c.draw();
+    for (const c of [this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.births]) c.draw();
   }
 }
 
@@ -415,7 +449,9 @@ export function renderGuide(el) {
       <li><strong>飢え</strong>：草はマスごとに育ち、食べられて減る。同じマスの個体で頭数割りに分け合うので、たくさん食べる大きな個体ほど足りなくなりやすい。草は寒いと育たず、干ばつの年はほとんど育たない。食べ尽くされた地面は土の色になる（そこでは黒が目立たない）。</li>
       <li><strong>病気</strong>：免疫型 A/B のヘテロが強い。疫病の年は差が大きく出る。</li>
       <li><strong>遺伝病</strong>：劣性有害遺伝子をホモでもつと弱る。劣性致死 l/l は生まれてこない。</li>
-      <li><strong>性選択</strong>：メスは大きいオスと発光するオスを好む。</li>
+      <li><strong>性選択</strong>：大きいオスは他のオスに競り勝つ。そのうえでメスは、自分の<strong>好みの遺伝子</strong>に従って長い尾や発光のオスを選ぶ。
+      飾りの見栄えは栄養状態しだいなので、健康なオスほど長い尾・強い光を示せる（正直なシグナル）。
+      長い尾は捕食者から逃げにくく、維持に多く食べる。選り好みの強いメスは相手探しに時間がかかり、繁殖の機会を逃しやすい。</li>
     </ul>
     <h3>遺伝子一覧</h3>
     ${Object.entries(byMode)
@@ -457,7 +493,6 @@ export function renderSettings(el, opts, onChange, onRestart) {
     <label class="field">突然変異率（1遺伝子座・1配偶子あたり）<input type="number" name="mutationRate" step="0.0001" min="0" max="0.05" value="${o.mutationRate}"></label>
     <label class="field">捕食者の探索像の強さ k<input type="number" name="searchImage" step="0.1" min="1" max="4" value="${o.searchImage}"></label>
     <p class="hint">k = 1 なら捕食者は目立つ獲物を狙うだけ。k が大きいほど「よく見かける色」を重点的に探すので、少数派の色が有利になる。</p>
-    <label class="field">発光オスへの好み（性選択）<input type="number" name="glowPreference" step="0.1" min="0" max="5" value="${o.glowPreference}"></label>
     <label class="check"><input type="checkbox" name="inbreedingAvoidance" ${o.inbreedingAvoidance ? 'checked' : ''}> 近親交配を避ける（半きょうだい以上の近親とは交配しない）</label>
     <label class="check"><input type="checkbox" name="randomEvents" ${o.randomEvents ? 'checked' : ''}> ランダムな出来事（疫病・不作・寒冷期・大嵐）</label>
     <p class="hint">寿命は 15 歳で固定です。</p>

@@ -258,7 +258,8 @@ export function drawPortrait(canvas, c) {
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(cx + r * 0.8, cy + 2);
-  const tl = [6, 13, 22][ph.tail];
+  // 尾の見栄えは栄養状態しだい（正直なシグナル）
+  const tl = 5 + 20 * ph.tail * (c.condition ?? 1);
   ctx.quadraticCurveTo(cx + r + tl * 0.6, cy - 2, cx + r + tl, cy - tl * 0.5);
   ctx.stroke();
   // 毛皮（ふさふさ）

@@ -28,13 +28,13 @@ const near = (actual, expected, tol) => assert.ok(Math.abs(actual - expected) < 
 
 test('メンデルの分離の法則: ヘテロ同士の交配で 1:2:1', () => {
   const rng = createRng(1);
-  const mom = genome('F', { TAL: ['L', 'S'] });
-  const dad = genome('M', { TAL: ['L', 'S'] });
+  const mom = genome('F', { EAR: ['U', 'F'] });
+  const dad = genome('M', { EAR: ['U', 'F'] });
   const n = 20000;
-  const c = cross(mom, dad, n, rng, (z) => genotypeString(z.genome, 'TAL'));
-  near(c['L/L'] / n, 0.25, 0.02);
-  near(c['L/S'] / n, 0.5, 0.02);
-  near(c['S/S'] / n, 0.25, 0.02);
+  const c = cross(mom, dad, n, rng, (z) => genotypeString(z.genome, 'EAR'));
+  near(c['U/U'] / n, 0.25, 0.02);
+  near(c['U/F'] / n, 0.5, 0.02);
+  near(c['F/F'] / n, 0.25, 0.02);
 });
 
 test('複対立遺伝子の優劣序列 K > G > w', () => {
@@ -52,9 +52,9 @@ test('共優性: S/T は斑点と縞の両方', () => {
 });
 
 test('不完全優性: ヘテロは中間', () => {
-  assert.equal(express(genome('F', { TAL: ['L', 'L'] })).tail, 2);
-  assert.equal(express(genome('F', { TAL: ['L', 'S'] })).tail, 1);
-  assert.equal(express(genome('F', { TAL: ['S', 'S'] })).tail, 0);
+  assert.equal(express(genome('F', { EAR: ['U', 'U'] })).ear, 2);
+  assert.equal(express(genome('F', { EAR: ['U', 'F'] })).ear, 1);
+  assert.equal(express(genome('F', { EAR: ['F', 'F'] })).ear, 0);
 });
 
 test('超優性: ヘテロ接合体の免疫力が最も高い', () => {
@@ -144,4 +144,31 @@ test('性比はおよそ 1:1', () => {
   const rng = createRng(7);
   const c = cross(genome('F'), genome('M'), 20000, rng, (z) => z.sex);
   near(c.M / 20000, 0.5, 0.02);
+});
+
+test('限性遺伝: 尾はオスだけ、好みはメスだけに現れるが、遺伝子は雌雄とも子に伝わる', () => {
+  const allPlus = { TL1: ['+', '+'], TL2: ['+', '+'], TL3: ['+', '+'], PT1: ['+', '+'], PT2: ['+', '+'], PT3: ['+', '+'] };
+  const f = express(genome('F', { ...allPlus, TL4: ['+', '+'] }));
+  const m = express(genome('M', { ...allPlus, TL4: ['+', null] }));
+  assert.equal(f.tailGene, 1);
+  assert.equal(f.tail, 0);
+  assert.equal(f.prefTail, 1);
+  assert.equal(m.tail, 1);
+  assert.equal(m.prefTailGene, 1);
+  assert.equal(m.prefTail, 0);
+
+  // 長い尾の遺伝子を持つ母 × 尾の短い父 → 息子の尾は中間くらい
+  const rng = createRng(8);
+  const mom = genome('F', { TL1: ['+', '+'], TL2: ['+', '+'], TL3: ['+', '+'], TL4: ['+', '+'] });
+  const dad = genome('M', { TL1: ['-', '-'], TL2: ['-', '-'], TL3: ['-', '-'], TL4: ['-', null] });
+  let sum = 0;
+  let sons = 0;
+  for (let i = 0; i < 4000; i++) {
+    const z = fertilize(makeGamete(mom, 'F', rng), makeGamete(dad, 'M', rng));
+    if (z.sex !== 'M') continue;
+    sons++;
+    sum += express(z.genome).tail;
+  }
+  // 常染色体 3 座は各 1/2、X 連鎖座は母由来の + が 1 本だけ → (3 + 1) / 7
+  near(sum / sons, 4 / 7, 0.02);
 });

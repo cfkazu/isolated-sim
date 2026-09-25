@@ -4,7 +4,7 @@ import { createRng } from './rng.js';
 import { LOCI, randomGenome, makeGamete, fertilize, express } from './genes.js';
 import { generateIsland, TERRAIN } from './island.js';
 import { Pedigree } from './pedigree.js';
-import { alleleFrequencies, heterozygosity, phenotypeSummary } from './stats.js';
+import { alleleFrequencies, heterozygosity, phenotypeSummary, sexualSelectionStats } from './stats.js';
 import { Vegetation, BODY_RGB, contrast, groundAt, predationHazards, PREDATOR } from './ecology.js';
 
 export const DEFAULTS = {
@@ -16,7 +16,6 @@ export const DEFAULTS = {
   mutationRate: 0.0005, // 1 配偶子・1 遺伝子座あたり
   initialPredators: 6,
   searchImage: 2, // 探索像の強さ k（1 なら色の多さに関係なく見つけやすさだけで狙う）
-  glowPreference: 1.0, // メスが発光オスを好む強さ（性選択）
   inbreedingAvoidance: false,
   randomEvents: true,
   pedigreeYears: 40,
@@ -37,6 +36,14 @@ export const MONTH_LABEL = ['1月', '2月', '3月', '4月', '5月', '6月', '7�
 const BREEDING_MONTHS = new Set([2, 3, 4, 5]);
 // 1 か月に必要な草の量（体格 1 あたり。幼体は半分）
 const FOOD_NEED = 0.08;
+// 性選択：好みが最大（1）のメスにとって、飾りが最大のオスは飾りのないオスの何倍魅力的か、から 1 を引いた値
+const PREFERENCE_SCALE = 6;
+// 好みが最大のメスが相手探しに費やす時間のせいで、その月に繁殖できる確率が何割減るか
+const CHOOSINESS_COST = 0.2;
+
+// 正直なシグナル：飾りの見栄えは栄養状態しだい。やせたオスは長い尾を保てず、弱くしか光れない。
+export const tailDisplay = (c) => c.pheno.tail * c.condition;
+export const glowDisplay = (c) => (c.pheno.glow ? c.condition : 0);
 
 export class World {
   constructor(options = {}) {
@@ -163,10 +170,10 @@ export class World {
     return t !== TERRAIN.BEACH && this.island.elevationAt(x, y) > this.snowLine;
   }
 
-  // 目立ちやすさ = 体色と足元の地面の色の差（発光していればさらに目立つ）
+  // 目立ちやすさ = 体色と足元の地面の色の差（発光していれば、光の強さに応じてさらに目立つ）
   visibility(c) {
     let v = contrast(BODY_RGB[c.pheno.color], groundAt(this, c.x, c.y));
-    if (c.pheno.glow) v += 0.45;
+    v += 0.3 * glowDisplay(c);
     return v;
   }
 
@@ -182,7 +189,8 @@ export class World {
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i];
       cells[i] = veg.cellAt(c.x, c.y);
-      need[i] = FOOD_NEED * c.pheno.size * (c.age < 12 ? 0.5 : 1);
+      // 長い尾を保つにはそのぶん多く食べる必要がある
+      need[i] = FOOD_NEED * c.pheno.size * (c.age < 12 ? 0.5 : 1) * (1 + 0.25 * c.pheno.tail);
       count[cells[i]]++;
     }
     const eaten = new Float64Array(n);
@@ -206,7 +214,10 @@ export class World {
       }
       const c = cs[i];
       c.hunger = 1 - got[i] / need[i];
-      c.condition = 0.75 * c.condition + 0.25 * (1 - c.hunger);
+      // 栄養状態は食べた量だけでなく、遺伝病や（疫病の最中なら）免疫の弱さでも下がる
+      let target = (1 - c.hunger) * (1 - 0.2 * c.pheno.load);
+      if (this.epidemicMonths > 0) target *= 0.5 + 0.5 * c.pheno.resistance;
+      c.condition = 0.75 * c.condition + 0.25 * target;
       hungerSum += c.hunger;
     }
     for (let f = 0; f < n; f++) veg.veg[f] = Math.max(0, veg.veg[f] - eaten[f]);
@@ -233,7 +244,8 @@ export class World {
     const colors = new Array(cs.length);
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i];
-      detect[i] = this.visibility(c) * (1.35 - 0.35 * c.pheno.size) * (c.age < 12 ? 1.6 : 1);
+      // 長い尾は逃げるときの邪魔になる
+      detect[i] = this.visibility(c) * (1.35 - 0.35 * c.pheno.size) * (c.age < 12 ? 1.6 : 1) * (1 + 0.5 * c.pheno.tail);
       colors[i] = c.pheno.color;
     }
     const { hazards: predHazard } = predationHazards(this.predators, detect, colors, o.searchImage);
@@ -361,8 +373,9 @@ export class World {
       (c) => c.alive && c.sex === 'F' && c.age >= o.maturityMonths && c.lastBredYear !== this.year,
     );
     for (const f of females) {
-      // やせ細ったメスは繁殖しない
-      if (f.condition < 0.35 || rng.next() > 0.45) continue;
+      // やせ細ったメスは繁殖しない。選り好みの強いメスほど相手探しに時間がかかる
+      const choosiness = Math.max(f.pheno.prefTail, f.pheno.prefGlow);
+      if (f.condition < 0.35 || rng.next() > 0.45 * (1 - CHOOSINESS_COST * choosiness)) continue;
       const mate = this._chooseMate(f, males);
       if (!mate) continue;
       f.lastBredYear = this.year;
@@ -420,9 +433,13 @@ export class World {
     }
     const weights = candidates.map((m) => {
       if (o.inbreedingAvoidance && this.pedigree.kinship(f.id, m.id) >= 0.125) return 0;
-      let w = m.pheno.size * m.pheno.size;
-      if (m.pheno.glow) w *= 1 + 0.8 * o.glowPreference;
-      return w;
+      // 大きいオスほど他のオスに競り勝つ（体格²）。そのうえでメス自身の好みの遺伝子で飾りを評価する
+      return (
+        m.pheno.size *
+        m.pheno.size *
+        (1 + PREFERENCE_SCALE * f.pheno.prefTail * tailDisplay(m)) *
+        (1 + PREFERENCE_SCALE * f.pheno.prefGlow * glowDisplay(m))
+      );
     });
     const i = this.rng.weightedIndex(weights);
     return i < 0 ? null : candidates[i];
@@ -567,6 +584,7 @@ export class World {
       freqs: Object.fromEntries(Object.entries(freqs).map(([k, v]) => [k, v.freq])),
       pheno,
       climate: this.climateOffset,
+      sexsel: sexualSelectionStats(cs),
       predators: this.predators,
       kills: this.counters.deaths.predation,
       vegetation: this.vegetation.meanFraction(),
