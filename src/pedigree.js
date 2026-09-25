@@ -32,7 +32,8 @@ export class Pedigree {
     // 親の ID は必ず子より小さいので、大きい方（若い方）を親へさかのぼる
     const x = a > b ? a : b;
     const y = a > b ? b : a;
-    const key = `${x},${y}`;
+    // 数値のキー（文字列を作らないので速く、ゴミも出ない）。ID は 2^26 未満を想定
+    const key = x * 67108864 + y;
     const hit = this.memo.get(key);
     if (hit !== undefined) return hit;
     const r = this._rec(x);
@@ -46,11 +47,17 @@ export class Pedigree {
 
   // 家系図のために記録はすべて残すが、cutoffTick より前に生まれた死亡個体はゲノムを捨てて軽くする。
   // 血縁係数の計算では、それより古い祖先は無関係な創始者として扱う。
-  prune(cutoffTick) {
-    this.cutoffTick = cutoffTick;
+  //
+  // 境目が動くと血縁係数の値が変わるので記憶（memo）を捨てる必要がある。毎年捨てると毎年すべて計算し直しになって
+  // 重いので、境目は step 単位（既定 10 年）でまとめて動かす。
+  prune(cutoffTick, step = 120) {
+    const snapped = Math.floor(cutoffTick / step) * step;
     for (const r of this.records.values()) {
       if (!r.alive && r.birthTick < cutoffTick && r.genome) r.genome = null;
     }
-    this.memo.clear();
+    if (snapped !== this.cutoffTick) {
+      this.cutoffTick = snapped;
+      this.memo.clear();
+    }
   }
 }

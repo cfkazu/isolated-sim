@@ -69,6 +69,10 @@ export class MapView {
   // 地面の色は植生と雪で毎月変わる。捕食者が見ている色（ecology.js の groundOfCell）をそのまま描く。
   _updateTerrain(world) {
     if (this.drawnTick === world.tick) return;
+    // 草や雪はゆっくりしか変わらないので、塗り直しは 1 秒に 4 回まで（全マスの計算で数 ms かかる）
+    const now = performance.now();
+    if (this.drawnTick != null && world.tick - this.drawnTick < 12 && now - (this.drawnAt ?? 0) < 250) return;
+    this.drawnAt = now;
     this.drawnTick = world.tick;
     const { W, H, terrain, elevation } = this.island;
     const data = this.image.data;
