@@ -116,3 +116,30 @@ test('自然選択の判定: 遺伝病（d/d）は差が出て、中立な耳の
   assert.ok(earHits / earN < 0.15, `ear ${earHits}/${earN}`);
   assert.ok(loadN === 0 || loadHits / loadN > earHits / earN, `load ${loadHits}/${loadN}`);
 });
+
+test('World: 名前は決定的で、創始者の家名は重ならず、家名は母から子へ受け継がれる', () => {
+  const a = new World({ seed: 'names' });
+  const b = new World({ seed: 'names' });
+  assert.deepEqual(
+    a.creatures.map((c) => c.name),
+    b.creatures.map((c) => c.name),
+  );
+  assert.equal(new Set(a.creatures.map((c) => c.clan)).size, a.creatures.length);
+  for (let i = 0; i < 12 * 20; i++) a.step();
+  for (const r of a.pedigree.records.values()) {
+    if (r.founder) continue;
+    assert.equal(r.clan, a.pedigree.get(r.motherId).clan);
+    assert.ok(a.pedigree.get(r.motherId).children.includes(r.id));
+    assert.ok(a.pedigree.get(r.fatherId).children.includes(r.id));
+  }
+});
+
+test('World: 家系の記録は古くなっても消えず、ゲノムだけが捨てられる', () => {
+  const w = new World({ seed: 'archive', pedigreeYears: 10 });
+  for (let i = 0; i < 12 * 25; i++) w.step();
+  for (let id = 1; id <= 100; id++) {
+    const r = w.pedigree.get(id);
+    assert.ok(r, `創始者 #${id} の記録が残っている`);
+    if (!r.alive) assert.equal(r.genome, null);
+  }
+});

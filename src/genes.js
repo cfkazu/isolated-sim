@@ -27,7 +27,7 @@ export const INHERITANCE = {
   polygenic: {
     label: '量的形質（ポリジーン）',
     short: 'ポリジーン',
-    desc: '複数の遺伝子座の「＋」の数を足し合わせて連続的な値になる。体格は 4 座、毛皮の厚さは 3 座。体格には環境によるばらつきも加わる。',
+    desc: '複数の遺伝子座の「＋」の数を足し合わせて連続的な値になる。体格は 4 座、毛皮の厚さは 3 座、代謝の速さは 3 座。体格には環境によるばらつきも加わる。代謝が遅い（燃費がいい）体は飢えに強いが、寒さに弱く産む子が少ない。',
   },
   xlinked: {
     label: '伴性遺伝（X 連鎖劣性）',
@@ -58,11 +58,12 @@ export const CHROMOSOMES = [
   { id: 'X', name: 'X染色体', length: 80, sex: true },
 ];
 
+const TRAIT_NAME = { size: '体格', fur: '毛皮', metab: '代謝' };
 const poly = (key, chr, pos, trait, n) => ({
   key,
   chr,
   pos,
-  name: `${trait === 'size' ? '体格' : '毛皮'}${n}`,
+  name: `${TRAIT_NAME[trait]}${n}`,
   mode: 'polygenic',
   trait,
   alleles: ['+', '-'],
@@ -122,6 +123,7 @@ export const LOCI = [
   poly('SZ1', 'C1', 45, 'size', 1),
   limited('PT1', 'C1', 60, 'prefTail', '尾への好み1', 0.3),
   poly('FR1', 'C1', 80, 'fur', 1),
+  poly('MB1', 'C1', 95, 'metab', 1),
   del('DL1', 'C1', 110, 1),
   {
     key: 'PAT',
@@ -133,6 +135,7 @@ export const LOCI = [
     freq: [0.25, 0.25, 0.5],
     labels: { S: '斑点', T: '縞', o: '無地' },
   },
+  poly('MB2', 'C2', 5, 'metab', 2),
   limited('PG1', 'C2', 25, 'prefGlow', '発光への好み1', 0.3),
   {
     key: 'EAR',
@@ -158,6 +161,7 @@ export const LOCI = [
     freq: [0.6, 0.4],
     labels: { A: 'A型', B: 'B型' },
   },
+  poly('MB3', 'C3', 5, 'metab', 3),
   limited('TL3', 'C3', 25, 'tail', '尾の長さ3', 0.4),
   poly('SZ3', 'C3', 35, 'size', 3),
   limited('PT3', 'C3', 45, 'prefTail', '尾への好み3', 0.3),
@@ -201,6 +205,7 @@ const DEL_KEYS = LOCI.filter((l) => l.mode === 'deleterious').map((l) => INDEX[l
 const TAIL_KEYS = LOCI.filter((l) => l.trait === 'tail').map((l) => INDEX[l.key]);
 const PREF_TAIL_KEYS = LOCI.filter((l) => l.trait === 'prefTail').map((l) => INDEX[l.key]);
 const PREF_GLOW_KEYS = LOCI.filter((l) => l.trait === 'prefGlow').map((l) => INDEX[l.key]);
+const METAB_KEYS = LOCI.filter((l) => l.trait === 'metab').map((l) => INDEX[l.key]);
 
 // ポリジーンの値：「＋」の割合（0〜1）。オスの X 連鎖座は 1 本だけ数える。
 function polyValue(genome, idxs) {
@@ -314,6 +319,8 @@ export function express(genome) {
   const tailGene = polyValue(genome, TAIL_KEYS);
   const prefTailGene = polyValue(genome, PREF_TAIL_KEYS);
   const prefGlowGene = polyValue(genome, PREF_GLOW_KEYS);
+  // 代謝の速さ 0.8〜1.2。速いほど多く食べ、体温を作りやすく、多く産める
+  const metabolism = 0.8 + 0.4 * polyValue(genome, METAB_KEYS);
 
   let sizePlus = 0;
   for (const i of SIZE_KEYS) sizePlus += countOf(genome, i, '+');
@@ -343,6 +350,7 @@ export function express(genome) {
     prefGlowGene,
     prefTail: male ? 0 : prefTailGene,
     prefGlow: male ? 0 : prefGlowGene,
+    metabolism,
     size,
     fur,
     glow,

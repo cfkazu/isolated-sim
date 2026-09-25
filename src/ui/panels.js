@@ -27,7 +27,8 @@ import { DEATH_CAUSES, DEFAULTS, tailDisplay, glowDisplay } from '../world.js';
 import { TERRAIN_LABEL } from '../island.js';
 import { createRng } from '../rng.js';
 import { Chart, resolveColor } from './charts.js';
-import { drawPortrait, bodyColor } from './map.js';
+import { bodyColor } from './map.js';
+import { drawCreature } from './creatureArt.js';
 
 const pct = (v, d = 0) => `${(v * 100).toFixed(d)}%`;
 // 家系の記録が残っていればリンク、古すぎて消えていれば文字だけ
@@ -63,18 +64,9 @@ export function renderCreaturePanel(el, world, c, pinned) {
     : `<span class="badge warn">死亡：${DEATH_CAUSES[c.cause] ?? c.cause}（${Math.floor(c.deathTick / 12)}年目）</span>`;
   const ph = c.pheno;
 
-  const children = [];
-  for (const r of ped.records.values()) if (r.fatherId === c.id || r.motherId === c.id) children.push(r);
+  const children = c.children.map((id) => ped.get(id)).filter(Boolean);
   const aliveChildren = children.filter((x) => x.alive);
-
-  const gp = (p) => (p ? [ped.get(p.fatherId), ped.get(p.motherId)] : [undefined, undefined]);
-  const [ff, fm] = gp(father);
-  const [mf, mm] = gp(mother);
-
-  const person = (r, role) => {
-    if (!r) return `<div class="person dead"><div class="role">${role}</div><span class="muted">${c.founder && role.length <= 1 ? '創始者' : '記録なし'}</span></div>`;
-    return `<button type="button" class="person${r.alive ? '' : ' dead'}" data-select="${r.id}"><div class="role">${role}</div>#${r.id} ${sexMark(r.sex)} ${COLOR_LABEL[r.pheno.color]}${r.alive ? '' : '（故）'}</button>`;
-  };
+  const who = (r) => (r ? `<button type="button" class="link" data-select="${r.id}">${sexMark(r.sex)} ${r.clan}家の${r.name}</button>${r.alive ? '' : '（故）'}` : '—');
 
   let terrainInfo = '';
   if (c.alive) {
@@ -84,7 +76,8 @@ export function renderCreaturePanel(el, world, c, pinned) {
   }
 
   const rows = [];
-  for (const chr of CHROMOSOMES) {
+  // 古い個体はゲノムの記録を捨てている（家系図のための軽い記録だけが残る）
+  for (const chr of c.genome ? CHROMOSOMES : []) {
     rows.push(`<tr class="chr-row"><td colspan="3">${chr.name}</td></tr>`);
     for (const l of LOCI.filter((x) => x.chr === chr.id).sort((a, b) => a.pos - b.pos)) {
       const carrier = isCarrier(l.key, c.genome) ? ' <span class="badge gene">保因者</span>' : '';
@@ -96,7 +89,9 @@ export function renderCreaturePanel(el, world, c, pinned) {
 
   let pinUi = '';
   if (pinned && pinned.id !== c.id) {
-    if (pinned.sex === c.sex) {
+    if (!pinned.genome || !c.genome) {
+      pinUi = '<div class="predict muted small">📌 古い個体は遺伝子の記録が残っていないため、交配予測できません。</div>';
+    } else if (pinned.sex === c.sex) {
       pinUi = `<div class="predict muted small">📌 固定中の #${pinned.id}（${sexLabel(pinned.sex)}）とは同性のため、交配予測できません。</div>`;
     } else {
       const mother = c.sex === 'F' ? c : pinned;
@@ -111,9 +106,9 @@ export function renderCreaturePanel(el, world, c, pinned) {
 
   el.innerHTML = `
     <div class="creature-head">
-      <canvas id="portrait" width="64" height="64" aria-hidden="true"></canvas>
+      <canvas id="portrait" class="portrait-big" width="160" height="104" aria-hidden="true"></canvas>
       <div>
-        <h2>#${c.id} ${sexMark(c.sex)} ${sexLabel(c.sex)}</h2>
+        <h2>${c.name} <span class="muted small">${c.clan}家・#${c.id}・${sexMark(c.sex)}${sexLabel(c.sex)}</span></h2>
         <div>${status} ${c.founder ? '<span class="badge">創始者</span>' : ''}</div>
       </div>
     </div>
@@ -128,6 +123,7 @@ export function renderCreaturePanel(el, world, c, pinned) {
           : `<dt>好み</dt><dd>長い尾 ${pct(ph.prefTail)}・発光 ${pct(ph.prefGlow)}</dd>`
       }
       <dt>体格 / 毛皮</dt><dd>${ph.size.toFixed(2)} / ${pct(ph.fur)}</dd>
+      <dt>代謝</dt><dd>${ph.metabolism < 0.93 ? '遅い（燃費がいい）' : ph.metabolism > 1.07 ? '速い（多産・寒さに強い）' : 'ふつう'}（${ph.metabolism.toFixed(2)}）</dd>
       <dt>栄養状態</dt><dd>${pct(c.condition)}${c.alive && c.hunger > 0.2 ? ' <span class="badge warn">空腹</span>' : ''}</dd>
       <dt>免疫力</dt><dd>${pct(ph.resistance)}${ph.load ? ` <span class="badge warn">遺伝病 ×${ph.load}</span>` : ''}</dd>
       ${
@@ -135,36 +131,31 @@ export function renderCreaturePanel(el, world, c, pinned) {
           ? `<dt>創始者由来</dt><dd>${Object.entries(c.lineage)
               .sort((a, b) => b[1] - a[1])
               .slice(0, 3)
-              .map(([id, v]) => `${idLink(world, id)} ${pct(v, 1)}`)
+              .map(([id, v]) => `${idLink(world, id, world.pedigree.get(Number(id))?.name ?? `#${id}`)} ${pct(v, 1)}`)
               .join('、')}${Object.keys(c.lineage).length > 3 ? ` ほか ${Object.keys(c.lineage).length - 3} 匹` : ''}</dd>`
           : ''
       }
       <dt>子の数</dt><dd>${children.length} 匹（生存 ${aliveChildren.length}）</dd>
       ${terrainInfo}
     </dl>
-    <div class="btn-row">${pinBtn}</div>
+    <div class="btn-row"><button type="button" data-tab="family">🌳 家系図で見る</button>${pinBtn}</div>
     ${pinUi}
-    <h3>家系</h3>
-    <div class="family">
-      ${person(father, '父')}${person(mother, '母')}
-      ${person(ff, '父方の祖父')}${person(fm, '父方の祖母')}${person(mf, '母方の祖父')}${person(mm, '母方の祖母')}
-    </div>
-    ${
-      children.length
-        ? `<h3>子ども（${children.length}）</h3><div class="family">${children
-            .slice(-24)
-            .map((k) => person(k, `${Math.floor(k.birthTick / 12)}年生`))
-            .join('')}</div>`
-        : ''
-    }
+    <dl class="kv">
+      <dt>父</dt><dd>${c.founder ? '（創始者）' : who(father)}</dd>
+      <dt>母</dt><dd>${c.founder ? '（創始者）' : who(mother)}</dd>
+    </dl>
     <h3>遺伝子型</h3>
-    <table>
+    ${
+      c.genome
+        ? `<table>
       <thead><tr><th>遺伝子座</th><th>遺伝子型</th><th>効果</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>
-    <p class="muted small">遺伝子型は「母由来/父由来」ではなく、優性の対立遺伝子を先に表記しています。オスの X 連鎖遺伝子は「/Y」。</p>
+    <p class="muted small">遺伝子型は「母由来/父由来」ではなく、優性の対立遺伝子を先に表記しています。オスの X 連鎖遺伝子は「/Y」。</p>`
+        : `<p class="muted small">${world.opts.pedigreeYears} 年以上前の個体なので、遺伝子の記録は残っていません（見た目と家系だけが残っています）。</p>`
+    }
   `;
-  drawPortrait(el.querySelector('#portrait'), c);
+  drawCreature(el.querySelector('#portrait'), c, 160, 104);
 }
 
 function renderPrediction(world, mother, father) {
@@ -216,7 +207,7 @@ function renderNotables(world) {
       ${items
         .map(
           ([t, c, f]) =>
-            `<button type="button" class="person" data-select="${c.id}"><div class="role">${t}</div>#${c.id} ${sexMark(c.sex)} ${f(c)}</button>`,
+            `<button type="button" class="person" data-select="${c.id}"><div class="role">${t}</div>${sexMark(c.sex)} ${c.clan}家の${c.name}<div class="muted small">${f(c)}</div></button>`,
         )
         .join('')}
     </div>
@@ -269,7 +260,7 @@ export class StatsPanel {
     });
     this.traits = new Chart(host, {
       title: '形質の平均と割合',
-      desc: '体格は 0.7〜1.3 の値。毛皮と発光・免疫ヘテロは割合。',
+      desc: '体格は 0.7〜1.3、代謝は 0.8〜1.2 の値。毛皮と発光・免疫ヘテロは割合。',
       yMax: 1.4,
       format: (v) => v.toFixed(2),
       series: [
@@ -277,6 +268,7 @@ export class StatsPanel {
         { label: '平均毛皮', color: '--series-2' },
         { label: '発光の割合', color: '--series-4' },
         { label: '免疫ヘテロの割合', color: '--series-3' },
+        { label: '平均代謝', color: '--series-5' },
       ],
     });
     this.sexsel = new Chart(host, {
@@ -340,6 +332,7 @@ export class StatsPanel {
       H.map((h) => (h.pop ? h.pheno.meanFur : 0)),
       H.map((h) => (h.pheno.glowM + h.pheno.glowF) / n(h)),
       H.map((h) => h.pheno.resistant / n(h)),
+      H.map((h) => h.metabolism ?? 1),
     ]);
     this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
     this.founders.setData(xs, [H.map((h) => h.founderLines ?? 0)]);
@@ -349,7 +342,7 @@ export class StatsPanel {
       ? `<p class="small muted">今の島の遺伝子のうち、各創始者に由来する割合（家系からの期待値）。上位 8 匹。</p>${top
           .map(
             (f) =>
-              `<div class="bar-row"><span>${idLink(world, f.id, `創始者 #${f.id}`)}</span><div class="track"><div class="fill" style="width:${(f.share / topMax) * 100}%"></div></div><span class="num">${pct(f.share, 1)}</span></div>`,
+              `<div class="bar-row"><span>${idLink(world, f.id, world.pedigree.get(f.id)?.name ?? `#${f.id}`)}</span><div class="track"><div class="fill" style="width:${(f.share / topMax) * 100}%"></div></div><span class="num">${pct(f.share, 1)}</span></div>`,
           )
           .join('')}`
       : '';

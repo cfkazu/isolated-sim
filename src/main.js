@@ -1,5 +1,6 @@
 import { World, MONTH_LABEL, DEFAULTS } from './world.js';
 import { MapView, DISPLAY_LEGENDS } from './ui/map.js';
+import { FamilyTree } from './ui/familyTree.js';
 import { renderCreaturePanel, StatsPanel, GenesPanel, SelectionPanel, renderGuide, renderSettings } from './ui/panels.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -22,6 +23,9 @@ const mapView = new MapView($('#map'));
 const statsPanel = new StatsPanel($('#tab-stats'));
 const genesPanel = new GenesPanel($('#tab-genes'));
 const selectionPanel = new SelectionPanel($('#tab-selection'));
+const familyTree = new FamilyTree($('#tab-family'), (id) => {
+  state.selectedId = id;
+});
 renderGuide($('#tab-guide'));
 renderSettings(
   $('#tab-settings'),
@@ -50,6 +54,7 @@ function newWorld() {
   state.logCount = 0;
   state.acc = 0;
   $('#log').innerHTML = '';
+  familyTree.reset();
   mapView.setIsland(state.world.island);
   setPlaying(false);
   refresh(true);
@@ -116,7 +121,10 @@ function renderLog() {
   const html = log
     .slice(-150)
     .reverse()
-    .map((e) => `<li class="${e.kind}"><span class="when">${Math.floor(e.tick / 12)}年目</span><span>${e.text}</span></li>`)
+    .map(
+      (e) =>
+        `<li class="${e.kind}"><span class="when">${Math.floor(e.tick / 12)}年目</span><span>${e.id != null ? `<button type="button" class="link" data-select="${e.id}">${e.text}</button>` : e.text}</span></li>`,
+    )
     .join('');
   el.innerHTML = html;
   state.logCount = log.length;
@@ -156,6 +164,10 @@ function renderSidePanel(force = false) {
     genesPanel.update(w);
   } else if (state.tab === 'selection' && (force || w.year !== state.lastYear)) {
     selectionPanel.update(w);
+  } else if (state.tab === 'family') {
+    // 家系図は重いので、中心の個体が変わったときと年が変わったときだけ描き直す
+    const changed = familyTree.setFocus(state.selectedId) || familyTree.world !== w;
+    if (changed || force || (!state.playing && w.year !== state.lastYear)) familyTree.render(w);
   }
 }
 
@@ -219,8 +231,9 @@ $('#display-mode').addEventListener('change', (e) => {
 $('#map').addEventListener('click', (e) => {
   const c = mapView.pick(state.world, e.clientX, e.clientY);
   state.selectedId = c ? c.id : null;
-  selectTab('creature');
-  renderSidePanel(true);
+  // 家系図を見ているときは、選んだ個体を中心に家系図を描き直す
+  if (state.tab === 'family' && c) renderSidePanel(true);
+  else selectTab('creature');
 });
 
 document.addEventListener('click', (e) => {
@@ -228,7 +241,8 @@ document.addEventListener('click', (e) => {
   if (!t) return;
   if (t.dataset.select) {
     state.selectedId = Number(t.dataset.select);
-    renderSidePanel(true);
+    if (state.tab === 'family' || state.tab === 'creature') renderSidePanel(true);
+    else selectTab('creature');
     return;
   }
   if (t.dataset.tab) {

@@ -4,6 +4,7 @@ import { createRng } from './rng.js';
 import { LOCI, randomGenome, makeGamete, fertilize, express } from './genes.js';
 import { generateIsland, TERRAIN } from './island.js';
 import { Pedigree } from './pedigree.js';
+import { makeName } from './names.js';
 import {
   alleleFrequencies,
   heterozygosity,
@@ -58,6 +59,8 @@ export class World {
     this.rng = createRng(this.opts.seed);
     this.island = generateIsland(this.rng);
     this.pedigree = new Pedigree();
+    this.clanNames = new Set();
+    this.clanPeak = new Map(); // 家名 → { peak, year }
     this.vegetation = new Vegetation(this.island, this.opts.fertility);
     this.predators = this.opts.initialPredators;
     this.hunger = 0;
@@ -112,8 +115,8 @@ export class World {
     return this.currentTemp;
   }
 
-  addLog(text, kind = 'info') {
-    this.log.push({ tick: this.tick, text, kind });
+  addLog(text, kind = 'info', id = null) {
+    this.log.push({ tick: this.tick, text, kind, id });
     if (this.log.length > 400) this.log.shift();
   }
 
@@ -131,8 +134,20 @@ export class World {
     const pheno = express(genome);
     // 体格は遺伝だけでなく環境（栄養状態など）でもばらつく
     pheno.size = Math.max(0.6, Math.min(1.4, pheno.size * (1 + 0.04 * this.rng.normal())));
+    const id = this.nextId++;
+    const mother = this.pedigree.get(motherId);
+    let name = makeName(this.opts.seed, id);
+    if (founder) {
+      // 創始者の名前はそのまま家名になるので重ならないようにする
+      for (let salt = 1; this.clanNames.has(name); salt++) name = makeName(this.opts.seed, id, salt);
+      this.clanNames.add(name);
+    }
     const c = {
-      id: this.nextId++,
+      id,
+      name,
+      // 家名は母から子へ（ミトコンドリアと同じ流れ）。創始者は自分の名前が家名になる
+      clan: founder ? name : mother?.clan ?? name,
+      children: [],
       sex,
       genome,
       pheno,
@@ -151,7 +166,7 @@ export class World {
       lastBredYear: -1,
       offspring: 0,
       yearOffspring: 0,
-      lineage: founder ? { [this.nextId - 1]: 1 } : this._inheritLineage(fatherId, motherId),
+      lineage: founder ? { [id]: 1 } : this._inheritLineage(fatherId, motherId),
       hunger: 0,
       condition: 1, // 栄養状態（最近の満腹度の移動平均）
       deathTick: null,
@@ -159,6 +174,8 @@ export class World {
     };
     this.creatures.push(c);
     this.pedigree.add(c);
+    mother?.children.push(id);
+    this.pedigree.get(fatherId)?.children.push(id);
     return c;
   }
 
@@ -180,6 +197,12 @@ export class World {
   }
 
   _kill(c, cause) {
+    // 歴代でいちばん子を残した個体が死んだときだけ記録する
+    if (c.offspring > (this.recordOffspring ?? 20)) {
+      this.recordOffspring = c.offspring;
+      const how = cause === 'age' ? '15 歳で大往生した' : `${DEATH_CAUSES[cause]}で死んだ`;
+      this.addLog(`👑 歴代最多の子だくさん、${c.clan}家の${c.name}（${c.sex === 'F' ? '♀' : '♂'}）が${how}。子は ${c.offspring} 匹。`, 'info', c.id);
+    }
     c.alive = false;
     c.lineage = null; // 死んだ個体はもう子を残さないので系統の記録は不要
     c.deathTick = this.tick;
@@ -219,7 +242,7 @@ export class World {
       const c = cs[i];
       cells[i] = veg.cellAt(c.x, c.y);
       // 長い尾を保つにはそのぶん多く食べる必要がある
-      need[i] = FOOD_NEED * c.pheno.size * (c.age < 12 ? 0.5 : 1) * (1 + 0.25 * c.pheno.tail);
+      need[i] = FOOD_NEED * c.pheno.size * c.pheno.metabolism * (c.age < 12 ? 0.5 : 1) * (1 + 0.25 * c.pheno.tail);
       count[cells[i]]++;
     }
     const eaten = new Float64Array(n);
@@ -297,7 +320,8 @@ export class World {
       h[0] = 0.6 * starving * starving * (c.age < 12 ? 1.5 : 1);
       h[1] = predHazard[i];
       // 気候：毛皮と体格で最適温度が変わる（ベルクマンの法則）
-      const topt = 22 - 22 * ph.fur - 8 * (ph.size - 1);
+      // 代謝が速いほど体温を作れるので寒さに強い
+      const topt = 22 - 22 * ph.fur - 8 * (ph.size - 1) - 15 * (ph.metabolism - 1);
       const excess = Math.max(0, Math.abs(T - topt) - 9);
       h[2] = 0.0022 * Math.pow(excess, 1.4);
       // 病気：免疫型（超優性）
@@ -411,7 +435,8 @@ export class World {
       this.counters.matings++;
       const F = this.pedigree.kinship(f.id, mate.id);
       // 栄養状態がよいほど多く産む
-      const litter = Math.min(4, 1 + rng.poisson(1.8 * f.condition * f.condition));
+      // 代謝が速い母ほど子に回せるエネルギーが多い
+      const litter = Math.min(4, 1 + rng.poisson(1.8 * f.condition * f.condition * f.pheno.metabolism));
       let born = 0;
       for (let k = 0; k < litter; k++) {
         const egg = makeGamete(f.genome, 'F', rng, o.mutationRate);
@@ -480,6 +505,7 @@ export class World {
     this._recordYear();
     this._startCohort();
     this._milestones();
+    this._clanEvents();
     this._resetCounters();
     if (this.opts.randomEvents) this._randomEvents();
 
@@ -496,6 +522,33 @@ export class World {
     this.yearNoise = this.rng.normal() * 1.2;
 
     this.pedigree.prune(this.tick - this.opts.pedigreeYears * 12);
+  }
+
+  // 家（母系）の栄枯盛衰。大きくなったことのある家が途絶えたとき、最大の家が入れ替わったときに記録する
+  _clanEvents() {
+    const count = new Map();
+    for (const c of this.creatures) count.set(c.clan, (count.get(c.clan) || 0) + 1);
+    for (const [clan, n] of count) {
+      const p = this.clanPeak.get(clan);
+      if (!p || n > p.peak) this.clanPeak.set(clan, { peak: n, year: this.year });
+    }
+    for (const [clan, p] of this.clanPeak) {
+      if (count.has(clan) || p.gone) continue;
+      p.gone = true;
+      if (p.peak >= 20) this.addLog(`🕯️ ${clan}家が途絶えた（最盛期は ${p.year} 年目の ${p.peak} 匹）。`, 'gene');
+    }
+    if (count.size === 1 && this.clanCount > 1) {
+      const [clan] = count.keys();
+      this.addLog(`🧬 島の全員が${clan}家になった。母から母へとたどると、全員が創始者${clan}に行き着く（この島の「ミトコンドリア・イブ」）。`, 'gene');
+    }
+    this.clanCount = count.size;
+    let top = null;
+    for (const [clan, n] of count) if (!top || n > top.n) top = { clan, n };
+    if (top && top.clan !== this.topClan && this.year - (this.topClanSince ?? -99) >= 5) {
+      if (this.topClan) this.addLog(`🏯 ${top.clan}家が${this.topClan}家を抜き、島いちばんの一族になった（${top.n} 匹）。`, 'gene');
+      this.topClan = top.clan;
+      this.topClanSince = this.year;
+    }
   }
 
   _milestones() {
@@ -619,6 +672,8 @@ export class World {
       sexsel: sexualSelectionStats(cs),
       selection: this.history.length ? selectionStats(this.cohort, this.cohortTick, this.opts.maturityMonths) : null,
       ...this._founderRecord(cs),
+      clans: new Set(cs.map((c) => c.clan)).size,
+      metabolism: cs.length ? cs.reduce((a, c) => a + c.pheno.metabolism, 0) / cs.length : 0,
       predators: this.predators,
       kills: this.counters.deaths.predation,
       vegetation: this.vegetation.meanFraction(),

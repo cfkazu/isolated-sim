@@ -3,26 +3,29 @@
 // 使い方: node tools/build.js [--fragment]
 //   --fragment  <!doctype>/<html>/<head>/<body> を付けない（外側の骨組みを自動で付けるホスティング向け）
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const fragment = process.argv.includes('--fragment');
 
-// 依存される側が先
-const MODULES = [
-  'src/rng.js',
-  'src/genes.js',
-  'src/island.js',
-  'src/pedigree.js',
-  'src/stats.js',
-  'src/ecology.js',
-  'src/world.js',
-  'src/ui/charts.js',
-  'src/ui/map.js',
-  'src/ui/panels.js',
-  'src/main.js',
-];
+// main.js から import をたどり、依存される側が先に来る順（帰りがけ順）に並べる
+function moduleOrder(entry) {
+  const order = [];
+  const seen = new Set();
+  const visit = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const src = readFileSync(join(root, file), 'utf8');
+    for (const m of src.matchAll(/^import[\s\S]*?from\s+'([^']+)';/gm)) {
+      visit(posix.normalize(posix.join(posix.dirname(file), m[1])));
+    }
+    order.push(file);
+  };
+  visit(entry);
+  return order;
+}
+const MODULES = moduleOrder('src/main.js');
 
 const declared = new Map();
 const js = MODULES.map((file) => {
@@ -50,4 +53,4 @@ const out = fragment
 mkdirSync(join(root, 'dist'), { recursive: true });
 const dest = join(root, 'dist', fragment ? 'island.html' : 'index.html');
 writeFileSync(dest, out);
-console.log(`${dest} (${(out.length / 1024).toFixed(0)} KB)`);
+console.log(`${dest} (${(out.length / 1024).toFixed(0)} KB, ${MODULES.length} モジュール)`);

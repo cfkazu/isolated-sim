@@ -202,6 +202,12 @@ export const SELECTION_TRAITS = {
     names: { thin: '薄い', mid: 'ふつう', thick: '厚い' },
     of: (c) => bin3(c.pheno.fur, THIRDS, ['thin', 'mid', 'thick']),
   },
+  metabolism: {
+    label: '代謝',
+    classes: ['slow', 'mid', 'fast'],
+    names: { slow: '遅い（燃費型）', mid: 'ふつう', fast: '速い' },
+    of: (c) => bin3(c.pheno.metabolism, [0.93, 1.07], ['slow', 'mid', 'fast']),
+  },
   load: {
     label: '遺伝病',
     classes: ['healthy', 'sick'],

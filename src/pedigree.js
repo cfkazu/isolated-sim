@@ -1,6 +1,6 @@
 // 家系図と血縁係数（kinship）。
 // 近交係数 F(子) = 血縁係数 φ(父, 母)。
-// 古すぎる祖先（cutoffTick より前に生まれた個体）は無関係な創始者として扱い、計算量とメモリを抑える。
+// 古すぎる祖先（cutoffTick より前に生まれた個体）は無関係な創始者として扱い、計算量を抑える。
 
 export class Pedigree {
   constructor() {
@@ -44,11 +44,12 @@ export class Pedigree {
     return v;
   }
 
-  // 生存個体と、cutoffTick 以降に生まれた記録だけを残す
+  // 家系図のために記録はすべて残すが、cutoffTick より前に生まれた死亡個体はゲノムを捨てて軽くする。
+  // 血縁係数の計算では、それより古い祖先は無関係な創始者として扱う。
   prune(cutoffTick) {
     this.cutoffTick = cutoffTick;
-    for (const [id, r] of this.records) {
-      if (!r.alive && r.birthTick < cutoffTick) this.records.delete(id);
+    for (const r of this.records.values()) {
+      if (!r.alive && r.birthTick < cutoffTick && r.genome) r.genome = null;
     }
     this.memo.clear();
   }

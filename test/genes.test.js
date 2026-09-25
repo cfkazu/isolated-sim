@@ -172,3 +172,12 @@ test('限性遺伝: 尾はオスだけ、好みはメスだけに現れるが、
   // 常染色体 3 座は各 1/2、X 連鎖座は母由来の + が 1 本だけ → (3 + 1) / 7
   near(sum / sons, 4 / 7, 0.02);
 });
+
+test('代謝はポリジーンで 0.8〜1.2', () => {
+  const low = express(genome('F', { MB1: ['-', '-'], MB2: ['-', '-'], MB3: ['-', '-'] }));
+  const high = express(genome('F', { MB1: ['+', '+'], MB2: ['+', '+'], MB3: ['+', '+'] }));
+  const mid = express(genome('F', { MB1: ['+', '-'], MB2: ['+', '-'], MB3: ['+', '-'] }));
+  assert.ok(Math.abs(low.metabolism - 0.8) < 1e-9);
+  assert.ok(Math.abs(high.metabolism - 1.2) < 1e-9);
+  assert.ok(Math.abs(mid.metabolism - 1.0) < 1e-9);
+});
