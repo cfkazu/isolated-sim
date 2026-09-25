@@ -66,7 +66,7 @@ export function renderCreaturePanel(el, world, c, pinned) {
 
   const children = c.children.map((id) => ped.get(id)).filter(Boolean);
   const aliveChildren = children.filter((x) => x.alive);
-  const who = (r) => (r ? `<button type="button" class="link" data-select="${r.id}">${sexMark(r.sex)} ${r.clan}家の${r.name}</button>${r.alive ? '' : '（故）'}` : '—');
+  const who = (r) => (r ? `<button type="button" class="link" data-select="${r.id}">${sexMark(r.sex)} ${r.clan}の${r.name}</button>${r.alive ? '' : '（故）'}` : '—');
 
   let terrainInfo = '';
   if (c.alive) {
@@ -108,7 +108,7 @@ export function renderCreaturePanel(el, world, c, pinned) {
     <div class="creature-head">
       <canvas id="portrait" class="portrait-big" width="160" height="104" aria-hidden="true"></canvas>
       <div>
-        <h2>${c.name} <span class="muted small">${c.clan}家・#${c.id}・${sexMark(c.sex)}${sexLabel(c.sex)}</span></h2>
+        <h2>${c.name} <span class="muted small">${c.clan}・#${c.id}・${sexMark(c.sex)}${sexLabel(c.sex)}</span></h2>
         <div>${status} ${c.founder ? '<span class="badge">創始者</span>' : ''}</div>
       </div>
     </div>
@@ -207,7 +207,7 @@ function renderNotables(world) {
       ${items
         .map(
           ([t, c, f]) =>
-            `<button type="button" class="person" data-select="${c.id}"><div class="role">${t}</div>${sexMark(c.sex)} ${c.clan}家の${c.name}<div class="muted small">${f(c)}</div></button>`,
+            `<button type="button" class="person" data-select="${c.id}"><div class="role">${t}</div>${sexMark(c.sex)} ${c.clan}の${c.name}<div class="muted small">${f(c)}</div></button>`,
         )
         .join('')}
     </div>
@@ -227,6 +227,9 @@ export class StatsPanel {
     this.el = el;
     el.innerHTML = `<div id="stats-tiles" class="quick-stats"></div><div id="stats-charts"></div>
       <h3>昨年の死因</h3><div id="stats-deaths" class="bars"></div>
+      <h3>いまの家（母系）</h3>
+      <p class="small muted">家は母から子へ受け継がれ、まれにミトコンドリアの突然変異で分家が生まれます（生きている子孫が 10 匹に育つと家として独立）。字下げは分かれた元の家。</p>
+      <div id="clan-tree" class="bars clan-tree"></div>
       <h3>創始者の系統</h3><div id="founders-chart"></div><div id="founders" class="bars"></div>`;
     const host = el.querySelector('#stats-charts');
     this.pop = new Chart(host, {
@@ -336,6 +339,14 @@ export class StatsPanel {
     ]);
     this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
     this.founders.setData(xs, [H.map((h) => h.founderLines ?? 0)]);
+    const clans = world.clanTree();
+    const clanMax = Math.max(1, ...clans.map((c) => c.n));
+    this.el.querySelector('#clan-tree').innerHTML = clans
+      .map(
+        (c) =>
+          `<div class="bar-row"><span style="padding-left:${c.depth}em">${idLink(world, c.founderId, c.name)}</span><div class="track"><div class="fill" style="width:${(c.n / clanMax) * 100}%"></div></div><span class="num">${c.n}</span></div>`,
+      )
+      .join('');
     const top = (world.founderSnapshot ?? []).slice(0, 8);
     const topMax = Math.max(0.01, ...top.map((f) => f.share));
     this.el.querySelector('#founders').innerHTML = top.length

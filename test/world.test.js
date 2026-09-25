@@ -117,7 +117,7 @@ test('自然選択の判定: 遺伝病（d/d）は差が出て、中立な耳の
   assert.ok(loadN === 0 || loadHits / loadN > earHits / earN, `load ${loadHits}/${loadN}`);
 });
 
-test('World: 名前は決定的で、創始者の家名は重ならず、家名は母から子へ受け継がれる', () => {
+test('World: 名前は決定的で、創始者の家名は重ならず、母系の系統は母から子へ（まれに分かれて）受け継がれる', () => {
   const a = new World({ seed: 'names' });
   const b = new World({ seed: 'names' });
   assert.deepEqual(
@@ -126,12 +126,20 @@ test('World: 名前は決定的で、創始者の家名は重ならず、家名�
   );
   assert.equal(new Set(a.creatures.map((c) => c.clan)).size, a.creatures.length);
   for (let i = 0; i < 12 * 20; i++) a.step();
+  let branches = 0;
   for (const r of a.pedigree.records.values()) {
     if (r.founder) continue;
-    assert.equal(r.clan, a.pedigree.get(r.motherId).clan);
+    const mom = a.pedigree.get(r.motherId);
+    // 母系の系統は母と同じか、ミトコンドリアの突然変異で母の系統から分かれたもの
+    if (r.mt !== mom.mt) {
+      branches++;
+      assert.equal(a.haplos.get(r.mt).parent, mom.mt);
+      assert.equal(r.branchOf, r.mt);
+    }
     assert.ok(a.pedigree.get(r.motherId).children.includes(r.id));
     assert.ok(a.pedigree.get(r.fatherId).children.includes(r.id));
   }
+  assert.ok(branches > 0, '20 年あれば分家の芽は生まれている');
 });
 
 test('World: 家系の記録は古くなっても消えず、ゲノムだけが捨てられる', () => {

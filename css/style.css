@@ -889,3 +889,24 @@ td .bars .track {
     gap: 4px;
   }
 }
+
+.tbadge {
+  font-size: 10px;
+  color: var(--gene);
+  font-weight: 600;
+}
+
+.clan-tree .bar-row span:first-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clan-tree .bar-row {
+  grid-template-columns: minmax(8em, 13em) 1fr 3em;
+}
+
+.log .link {
+  text-align: left;
+  line-height: inherit;
+}

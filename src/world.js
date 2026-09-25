@@ -42,6 +42,11 @@ export const DEATH_CAUSES = {
 
 export const MONTH_LABEL = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 const BREEDING_MONTHS = new Set([2, 3, 4, 5]);
+// ミトコンドリアの突然変異率（1 回の出生あたり）。母系の新しい系統（分家）の芽になる
+const MT_MUTATION_RATE = 1 / 40;
+// 分家の芽が、生きている個体がこの数に育ったら家として名前を付ける
+const BRANCH_NAMED_AT = 10;
+
 // 1 か月に必要な草の量（体格 1 あたり。幼体は半分）
 const FOOD_NEED = 0.08;
 // 性選択：好みが最大（1）のメスにとって、飾りが最大のオスは飾りのないオスの何倍魅力的か、から 1 を引いた値
@@ -60,7 +65,10 @@ export class World {
     this.island = generateIsland(this.rng);
     this.pedigree = new Pedigree();
     this.clanNames = new Set();
-    this.clanPeak = new Map(); // 家名 → { peak, year }
+    // 母系の系統（ミトコンドリアのハプログループ）。id → { id, name, parent, root, founderId, tick, established }
+    this.haplos = new Map();
+    this.nextHaplo = 1;
+    this.clanPeak = new Map(); // 系統 id → { peak, year, gone }
     this.vegetation = new Vegetation(this.island, this.opts.fertility);
     this.predators = this.opts.initialPredators;
     this.hunger = 0;
@@ -142,11 +150,26 @@ export class World {
       for (let salt = 1; this.clanNames.has(name); salt++) name = makeName(this.opts.seed, id, salt);
       this.clanNames.add(name);
     }
+    // 母系の系統は母から子へ（ミトコンドリアと同じ流れ）。創始者は自分の系統を始める。
+    // まれにミトコンドリアの突然変異が起き、その子から新しい系統（分家）が始まる。
+    let mt = mother?.mt;
+    let branchOf = null;
+    if (founder || mt == null) {
+      mt = this._newHaplo({ name, parent: null, founderId: id, established: true });
+    } else if (this.rng.next() < MT_MUTATION_RATE) {
+      mt = this._newHaplo({ name, parent: mt, founderId: id, established: false });
+      branchOf = mt;
+    }
+    const world = this;
     const c = {
       id,
       name,
-      // 家名は母から子へ（ミトコンドリアと同じ流れ）。創始者は自分の名前が家名になる
-      clan: founder ? name : mother?.clan ?? name,
+      mt,
+      branchOf,
+      // 表示用の家名。分家がまだ小さいうちは、親の家の名前で呼ばれる
+      get clan() {
+        return world.clanOf(this.mt);
+      },
       children: [],
       sex,
       genome,
@@ -201,7 +224,7 @@ export class World {
     if (c.offspring > (this.recordOffspring ?? 20)) {
       this.recordOffspring = c.offspring;
       const how = cause === 'age' ? '15 歳で大往生した' : `${DEATH_CAUSES[cause]}で死んだ`;
-      this.addLog(`👑 歴代最多の子だくさん、${c.clan}家の${c.name}（${c.sex === 'F' ? '♀' : '♂'}）が${how}。子は ${c.offspring} 匹。`, 'info', c.id);
+      this.addLog(`👑 歴代最多の子だくさん、${c.clan}の${c.name}（${c.sex === 'F' ? '♀' : '♂'}）が${how}。子は ${c.offspring} 匹。`, 'info', c.id);
     }
     c.alive = false;
     c.lineage = null; // 死んだ個体はもう子を残さないので系統の記録は不要
@@ -524,31 +547,104 @@ export class World {
     this.pedigree.prune(this.tick - this.opts.pedigreeYears * 12);
   }
 
-  // 家（母系）の栄枯盛衰。大きくなったことのある家が途絶えたとき、最大の家が入れ替わったときに記録する
+  _newHaplo({ name, parent, founderId, established }) {
+    const id = this.nextHaplo++;
+    const p = parent == null ? null : this.haplos.get(parent);
+    this.haplos.set(id, { id, name, parent, root: p ? p.root : id, founderId, tick: this.tick, established });
+    return id;
+  }
+
+  // 名前のついている（十分に育った）いちばん近い系統
+  establishedHaplo(mt) {
+    let h = this.haplos.get(mt);
+    while (h && !h.established) h = this.haplos.get(h.parent);
+    return h;
+  }
+
+  clanOf(mt) {
+    const h = this.establishedHaplo(mt);
+    if (!h) return '?';
+    if (h.parent == null) return `${h.name}家`;
+    return `${this.haplos.get(h.root).name}家${h.name}流`;
+  }
+
+  // 家（母系）の栄枯盛衰。分家の独立、大きくなったことのある家が途絶えたとき、最大の家が入れ替わったときに記録する
   _clanEvents() {
+    // 分家の芽：まだ名前のない系統が生きている個体 BRANCH_NAMED_AT 匹に育ったら、家として名前を付ける
+    const raw = new Map();
+    for (const c of this.creatures) raw.set(c.mt, (raw.get(c.mt) || 0) + 1);
+    for (const [mt, n] of raw) {
+      const h = this.haplos.get(mt);
+      if (h.established || n < BRANCH_NAMED_AT) continue;
+      const parentClan = this.clanOf(h.parent);
+      h.established = true;
+      const f = this.pedigree.get(h.founderId);
+      this.addLog(
+        `🌿 ${parentClan}から${this.clanOf(mt)}が独立（${n} 匹）。祖は ${Math.floor(h.tick / 12)} 年目生まれの${h.name}（${f?.sex === 'F' ? '♀' : '♂'}）。ミトコンドリアの突然変異から始まった家。`,
+        'gene',
+        h.founderId,
+      );
+    }
+
     const count = new Map();
-    for (const c of this.creatures) count.set(c.clan, (count.get(c.clan) || 0) + 1);
-    for (const [clan, n] of count) {
-      const p = this.clanPeak.get(clan);
-      if (!p || n > p.peak) this.clanPeak.set(clan, { peak: n, year: this.year });
+    for (const c of this.creatures) {
+      const h = this.establishedHaplo(c.mt);
+      count.set(h.id, (count.get(h.id) || 0) + 1);
     }
-    for (const [clan, p] of this.clanPeak) {
-      if (count.has(clan) || p.gone) continue;
+    for (const [id, n] of count) {
+      const p = this.clanPeak.get(id);
+      if (!p || n > p.peak) this.clanPeak.set(id, { peak: n, year: this.year });
+    }
+    for (const [id, p] of this.clanPeak) {
+      if (count.has(id) || p.gone) continue;
       p.gone = true;
-      if (p.peak >= 20) this.addLog(`🕯️ ${clan}家が途絶えた（最盛期は ${p.year} 年目の ${p.peak} 匹）。`, 'gene');
+      if (p.peak >= 20) this.addLog(`🕯️ ${this.clanOf(id)}が途絶えた（最盛期は ${p.year} 年目の ${p.peak} 匹）。`, 'gene');
     }
-    if (count.size === 1 && this.clanCount > 1) {
-      const [clan] = count.keys();
-      this.addLog(`🧬 島の全員が${clan}家になった。母から母へとたどると、全員が創始者${clan}に行き着く（この島の「ミトコンドリア・イブ」）。`, 'gene');
+    // 大本の家（創始者の系統）が 1 つだけになったら、その創始者がこの島の「ミトコンドリア・イブ」
+    const roots = new Set([...count.keys()].map((id) => this.haplos.get(id).root));
+    if (roots.size === 1 && this.rootCount > 1) {
+      const root = this.haplos.get([...roots][0]);
+      this.addLog(`🧬 母から母へとたどると、島の全員が創始者${root.name}に行き着くようになった。${root.name}がこの島の「ミトコンドリア・イブ」。`, 'gene', root.founderId);
     }
-    this.clanCount = count.size;
+    this.rootCount = roots.size;
     let top = null;
-    for (const [clan, n] of count) if (!top || n > top.n) top = { clan, n };
-    if (top && top.clan !== this.topClan && this.year - (this.topClanSince ?? -99) >= 5) {
-      if (this.topClan) this.addLog(`🏯 ${top.clan}家が${this.topClan}家を抜き、島いちばんの一族になった（${top.n} 匹）。`, 'gene');
-      this.topClan = top.clan;
+    for (const [id, n] of count) if (!top || n > top.n) top = { id, n };
+    if (top && top.id !== this.topClan && this.year - (this.topClanSince ?? -99) >= 5) {
+      if (this.topClan) this.addLog(`🏯 ${this.clanOf(top.id)}が${this.clanOf(this.topClan)}を抜き、島いちばんの一族になった（${top.n} 匹）。`, 'gene');
+      this.topClan = top.id;
       this.topClanSince = this.year;
     }
+  }
+
+  // いま生きている家の一覧（系統樹の順）
+  clanTree() {
+    const count = new Map();
+    for (const c of this.creatures) {
+      const h = this.establishedHaplo(c.mt);
+      count.set(h.id, (count.get(h.id) || 0) + 1);
+    }
+    // 子孫に生きている家がある系統も、枝として残す
+    const keep = new Set();
+    for (const id of count.keys()) {
+      for (let h = this.haplos.get(id); h; h = this.haplos.get(h.parent)) keep.add(h.id);
+    }
+    const kids = new Map();
+    for (const id of keep) {
+      const h = this.haplos.get(id);
+      if (!kids.has(h.parent)) kids.set(h.parent, []);
+      kids.get(h.parent).push(h);
+    }
+    const out = [];
+    const walk = (parent, depth) => {
+      const list = (kids.get(parent) ?? []).filter((h) => h.established);
+      list.sort((a, b) => (count.get(b.id) || 0) - (count.get(a.id) || 0));
+      for (const h of list) {
+        out.push({ id: h.id, name: this.clanOf(h.id), depth, n: count.get(h.id) || 0, founderId: h.founderId, year: Math.floor(h.tick / 12) });
+        walk(h.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
   }
 
   _milestones() {
@@ -672,7 +768,7 @@ export class World {
       sexsel: sexualSelectionStats(cs),
       selection: this.history.length ? selectionStats(this.cohort, this.cohortTick, this.opts.maturityMonths) : null,
       ...this._founderRecord(cs),
-      clans: new Set(cs.map((c) => c.clan)).size,
+      clans: new Set(cs.map((c) => this.establishedHaplo(c.mt).id)).size,
       metabolism: cs.length ? cs.reduce((a, c) => a + c.pheno.metabolism, 0) / cs.length : 0,
       predators: this.predators,
       kills: this.counters.deaths.predation,

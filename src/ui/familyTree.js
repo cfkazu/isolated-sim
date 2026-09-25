@@ -68,17 +68,27 @@ export class FamilyTree {
     if (!r) {
       return `<div class="tnode empty"><div class="trole">${role}</div><div class="muted small">${role === '父' || role === '母' ? '創始者' : '—'}</div></div>`;
     }
-    const life = r.alive ? `${yearOf(r.birthTick)}年生・存命` : `${yearOf(r.birthTick)}〜${yearOf(r.deathTick)}年`;
+    const born = r.birthTick < 0 ? '来島前生まれ' : `${yearOf(r.birthTick)}年生`;
+    const life = r.alive ? `${born}・存命` : r.birthTick < 0 ? `来島前〜${yearOf(r.deathTick)}年` : `${yearOf(r.birthTick)}〜${yearOf(r.deathTick)}年`;
     const ring = dup ? ` style="--dup:${dup.color}"` : '';
     const up = r.fatherId != null || r.motherId != null ? '▲' : '';
     return `<button type="button" class="tnode${big ? ' big' : ''}${r.alive ? '' : ' dead'}${dup ? ' dup' : ''}" data-focus="${r.id}" data-node="${r.id}"${ring}>
       <div class="trole">${role}${dup ? ` <span class="dupmark">×${dup.count}</span>` : ''}</div>
       <canvas class="tart" data-art="${r.id}" width="${big ? 120 : 64}" height="${big ? 80 : 42}"></canvas>
       <div class="tname">${sexSym(r.sex)} ${r.name}</div>
-      <div class="tsub">${r.clan}家</div>
+      <div class="tsub">${r.clan}</div>
+      ${this._branchBadge(r)}
       <div class="tsub">${life}</div>
       <div class="tsub">${up ? '▲ 親あり・' : '創始者・'}子 ${r.children.length}</div>
     </button>`;
+  }
+
+  // この個体から母系の新しい家（分家）が始まっていれば印を付ける
+  _branchBadge(r) {
+    const w = this.world;
+    const h = r.branchOf != null ? w?.haplos.get(r.branchOf) : r.founder ? w?.haplos.get(r.mt) : null;
+    if (!h?.established) return '';
+    return `<div class="tbadge">🌿 ${w.clanOf(h.id)}の祖</div>`;
   }
 
   // 祖先を DEPTH 世代さかのぼり、2 回以上現れる個体（家系の重なり）を数える
@@ -153,7 +163,7 @@ export class FamilyTree {
         shown += visible.length;
         if (visible.length === 0) return '';
         return `<div class="tgroup">
-          <div class="tmate">× ${mate ? `<button type="button" class="link" data-focus="${mate.id}">${sexSym(mate.sex)} ${mate.clan}家の${mate.name}</button>` : '不明'}（子 ${kids.length}）</div>
+          <div class="tmate">× ${mate ? `<button type="button" class="link" data-focus="${mate.id}">${sexSym(mate.sex)} ${mate.clan}の${mate.name}</button>` : '不明'}（子 ${kids.length}）</div>
           <div class="trow wrap" data-row="children">${visible.map((k) => nodeOf(k, `${yearOf(k.birthTick)}年生`)).join('')}</div>
         </div>`;
       })
@@ -164,13 +174,13 @@ export class FamilyTree {
       .slice(0, 6)
       .map(([pid, d]) => {
         const r = ped.get(pid);
-        return `<button type="button" class="dupchip" style="--dup:${d.color}" data-focus="${pid}">${r ? `${r.clan}家の${r.name}` : `#${pid}`} ×${d.count}</button>`;
+        return `<button type="button" class="dupchip" style="--dup:${d.color}" data-focus="${pid}">${r ? `${r.clan}の${r.name}` : `#${pid}`} ×${d.count}</button>`;
       })
       .join('');
 
     this.el.innerHTML = `
       <div class="btn-row">${back}<button type="button" data-tree="founders">最初の百匹へ</button></div>
-      <p class="small">${f.clan}家の${f.name}（${sexSym(f.sex)}）の子孫は、これまでに ${desc.total} 匹、いま ${desc.alive} 匹が生きています。
+      <p class="small">${f.clan}の${f.name}（${sexSym(f.sex)}）の子孫は、これまでに ${desc.total} 匹、いま ${desc.alive} 匹が生きています。
       親族をクリックすると、その個体を中心に描き直します（▲ は親がいる印）。</p>
       ${
         dups.size
@@ -179,13 +189,17 @@ export class FamilyTree {
       }
       <div class="tree" id="tree">
         <svg class="tlines" aria-hidden="true"></svg>
-        <div class="tgen-label">祖父母</div>
+        ${
+          f.founder
+            ? '<p class="muted small center">創始者：島に閉じ込められた最初の個体（または漂着者）なので、親の記録はありません。</p>'
+            : `<div class="tgen-label">祖父母</div>
         <div class="trow gp">
           <div class="tpair" data-pair="fp">${nodeOf(ff, '父方の祖父')}${nodeOf(fm, '父方の祖母')}</div>
           <div class="tpair" data-pair="mp">${nodeOf(mf, '母方の祖父')}${nodeOf(mm, '母方の祖母')}</div>
         </div>
         <div class="tgen-label">親</div>
-        <div class="trow" data-row="parents"><div class="tpair" data-pair="p">${nodeOf(father, '父')}${nodeOf(mother, '母')}</div></div>
+        <div class="trow" data-row="parents"><div class="tpair" data-pair="p">${nodeOf(father, '父')}${nodeOf(mother, '母')}</div></div>`
+        }
         <div class="tgen-label">本人</div>
         <div class="trow" data-row="self">${this._node(f, '本人', { big: true })}</div>
         ${groups.size ? `<div class="tgen-label">子（相手ごと）</div>${groupHtml}` : '<p class="muted small center">子はいません。</p>'}
