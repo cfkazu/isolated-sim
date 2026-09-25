@@ -1,0 +1,13 @@
+{
+  "name": "isolated-sim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "孤島の遺伝子 — 百の架空の有性生物を島に閉じ込めて自然繁殖させる遺伝シミュレーションゲーム",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node --test",
+    "sim": "node tools/headless.js"
+  },
+  "license": "MIT"
+}
