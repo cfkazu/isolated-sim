@@ -20,6 +20,7 @@ export const DEFAULTS = {
   seed: 'island',
   initialCount: 100,
   fertility: 1.0, // 草の育ちやすさ（島の豊かさ）
+  islandShape: 'single', // 島の形：'single'（ひとつの島）・'islets'（離島のある島）・'archipelago'（群島）
   maxAgeYears: 15, // この年齢で必ず死ぬ
   maturityMonths: 24,
   mutationRate: 0.0005, // 1 配偶子・1 遺伝子座あたり
@@ -87,8 +88,10 @@ export class World {
   constructor(options = {}) {
     this.opts = { ...DEFAULTS, ...options };
     this.rng = createRng(this.opts.seed);
-    this.island = generateIsland(this.rng);
-    this.island.namer = (id) => `${makeName(this.opts.seed, `isle${id}`)}島`;
+    this.island = generateIsland(this.rng, {
+      shape: this.opts.islandShape,
+      namer: (id) => `${makeName(this.opts.seed, `isle${id}`)}島`,
+    });
     this.pedigree = new Pedigree();
     this.clanNames = new Set();
     // 母系の系統（ミトコンドリアのハプログループ）。id → { id, name, parent, root, founderId, tick, established }
@@ -122,7 +125,9 @@ export class World {
     const n = this.opts.initialCount;
     for (let k = 0; k < n; k++) {
       const sex = k % 2 === 0 ? 'F' : 'M';
-      const pos = this.island.randomLand(this.rng);
+      // 離島のある島では、最初の個体は本島だけに置く（小島は無人から始まる）。群島では広さに応じて散らばる
+      const main = this.island.landmasses[0]?.id;
+      const pos = this.opts.islandShape === 'islets' ? this.island.randomLand(this.rng, (t, c) => this.island.landmass[c] === main) : this.island.randomLand(this.rng);
       this._spawn({
         sex,
         genome: randomGenome(sex, this.rng),
@@ -888,43 +893,9 @@ export class World {
 
   // 本島から少し離れた沖に小島をつくる
   createIslet() {
-    const island = this.island;
-    const { W, H, elevation, terrain } = island;
-    for (let t = 0; t < 400; t++) {
-      const i = this.rng.int(W * H);
-      const x = (i % W) + 0.5;
-      const y = Math.floor(i / W) + 0.5;
-      if (terrain[i] !== TERRAIN.SEA || x < 8 || y < 8 || x > W - 8 || y > H - 8) continue;
-      // 岸から 14〜26 マス離れた場所
-      let near = Infinity;
-      let nearCell = -1;
-      for (const c of island.landCells) {
-        const d = Math.hypot((c % W) + 0.5 - x, Math.floor(c / W) + 0.5 - y);
-        if (d < near) {
-          near = d;
-          nearCell = c;
-        }
-        if (near < 14) break;
-      }
-      if (near < 14 || near > 26) continue;
-      island.sculpt(x / W, y / H, 8, 0.35 - elevation[i]);
-      // いちばん近い岸までの海底を浅瀬にする。寒冷期に海面が下がると陸橋になる
-      const tx = (nearCell % W) + 0.5;
-      const ty = Math.floor(nearCell / W) + 0.5;
-      for (let k = 0; k <= near; k++) {
-        const px = x + ((tx - x) * k) / near;
-        const py = y + ((ty - y) * k) / near;
-        for (let oy = -1; oy <= 1; oy++) {
-          for (let ox = -1; ox <= 1; ox++) {
-            const j = Math.floor(py + oy) * W + Math.floor(px + ox);
-            if (j >= 0 && j < W * H && elevation[j] < -0.05) elevation[j] = -0.05;
-          }
-        }
-      }
-      this.terrainChanged('edit');
-      return true;
-    }
-    return false;
+    if (!this.island.addIslet(this.rng)) return false;
+    this.terrainChanged('edit');
+    return true;
   }
 
   // 流木による漂流：砂浜の個体がまれに、近くの仲間といっしょに沖へ流される。

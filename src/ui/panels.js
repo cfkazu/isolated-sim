@@ -28,7 +28,7 @@ import {
   SELECTION_T,
 } from '../stats.js';
 import { DEATH_CAUSES, DEFAULTS, CLIMATE_AMPLITUDE, tailDisplay, glowDisplay } from '../world.js';
-import { TERRAIN_LABEL } from '../island.js';
+import { TERRAIN_LABEL, ISLAND_SHAPES } from '../island.js';
 import { createRng } from '../rng.js';
 import { Chart, resolveColor } from './charts.js';
 import { bodyColor } from './map.js';
@@ -684,6 +684,12 @@ export function renderSettings(el, opts, onChange, onRestart) {
     <h2>新しい島の条件</h2>
     <p class="hint">これらは「この設定で新しい島を始める」を押したときに反映されます。</p>
     <label class="field">シード（同じシードなら同じ島・同じ歴史）<input type="text" name="seed" value="${String(o.seed).replace(/"/g, '&quot;')}"></label>
+    <label class="field">島の形<select name="islandShape">${Object.entries(ISLAND_SHAPES)
+      .map(([k, v]) => `<option value="${k}" ${o.islandShape === k ? 'selected' : ''}>${v.label}</option>`)
+      .join('')}</select></label>
+    <p class="hint">${Object.values(ISLAND_SHAPES)
+      .map((v) => `<strong>${v.label}</strong>：${v.desc}`)
+      .join('<br>')}</p>
     <label class="field">最初の個体数<input type="number" name="initialCount" min="2" max="1000" value="${o.initialCount}"></label>
     <label class="field">島の豊かさ（草の育ちやすさ）<input type="number" name="fertility" step="0.1" min="0.1" max="5" value="${o.fertility}"></label>
     <label class="field">最初の捕食者の数<input type="number" name="initialPredators" min="0" max="100" value="${o.initialPredators}"></label>

@@ -207,3 +207,16 @@ test('気候: 氷期から次の氷期まで約 600 年ののこぎり形。寒�
   assert.ok(falling > 400, `下がる年 ${falling}`);
   assert.equal(w.cycleTemp(0), w.cycleTemp(600));
 });
+
+test('島の形: 離島のある島は小島が無人で始まり、群島は複数の島に個体が散らばる', () => {
+  const islets = new World({ seed: 'shape', islandShape: 'islets' });
+  const lands = islets.island.landmasses.filter((m) => m.size >= 15);
+  assert.ok(lands.length >= 2, '小島がある');
+  const mainId = lands[0].id;
+  for (const c of islets.creatures) assert.equal(islets.island.landmassAt(c.x, c.y), mainId, '最初は本島だけ');
+
+  const arch = new World({ seed: 'shape', islandShape: 'archipelago' });
+  const peopled = new Set(arch.creatures.map((c) => arch.island.landmassAt(c.x, c.y)));
+  assert.ok(arch.island.landmasses.filter((m) => m.size >= 150).length >= 3, '島が 3 つ以上');
+  assert.ok(peopled.size >= 3, '3 つ以上の島に個体がいる');
+});

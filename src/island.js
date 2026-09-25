@@ -29,7 +29,74 @@ function makeNoise(rng, W, H, cell) {
 const BEACH_BAND = 0.07;
 const ROCK_ABOVE = 0.78;
 
-export function generateIsland(rng, W = 160, H = 120) {
+export const ISLAND_SHAPES = {
+  single: { label: 'ひとつの島', desc: '大きな島がひとつ。' },
+  islets: { label: '離島のある島', desc: '本島の沖に小島が 2〜3 個。最初は無人で、流木や氷期の陸橋で渡るのを待つ。' },
+  archipelago: { label: '群島', desc: '中くらいの島が 4〜6 個。最初の個体は島の広さに応じて散らばる。浅い海峡は氷期に陸橋になる。' },
+};
+
+export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer = null } = {}) {
+  if (shape === 'archipelago') return generateArchipelago(rng, W, H, namer);
+  const island = generateSingle(rng, W, H, shape === 'islets' ? 1.05 : 0.75, namer);
+  if (shape === 'islets') {
+    const n = 2 + rng.int(2);
+    for (let k = 0; k < n; k++) {
+      island.addIslet(rng, { minDist: 10, maxDist: 22, r: 7 + rng.int(4), height: 0.3 + rng.next() * 0.2 });
+      island.reclassify();
+    }
+  }
+  return island;
+}
+
+// 群島：いくつかの高まりを散らし、ある程度の大きさ（150 マス以上）の陸地をすべて島として残す
+function generateArchipelago(rng, W, H, namer) {
+  const octaves = [
+    [makeNoise(rng, W, H, 30), 0.55],
+    [makeNoise(rng, W, H, 12), 0.3],
+    [makeNoise(rng, W, H, 6), 0.15],
+  ];
+  const moistNoise = makeNoise(rng, W, H, 16);
+  const k = 4 + rng.int(3);
+  const centers = [];
+  for (let t = 0; centers.length < k && t < 500; t++) {
+    const c = { x: 0.14 + rng.next() * 0.72, y: 0.14 + rng.next() * 0.72, s: 0.06 + rng.next() * 0.035 };
+    // 中心どうしは少し離す（くっつきすぎると 1 つの島になる）
+    if (centers.every((o) => Math.hypot(o.x - c.x, (o.y - c.y) * 0.75) > 0.24)) centers.push(c);
+  }
+  const raw = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let n = 0;
+      for (const [f, w] of octaves) n += f(x, y) * w;
+      let bump = 0;
+      for (const c of centers) {
+        const d2 = (x / W - c.x) ** 2 + ((y / H - c.y) * 0.75) ** 2;
+        bump = Math.max(bump, Math.exp(-d2 / (2 * c.s * c.s)));
+      }
+      raw[y * W + x] = n * 0.45 + bump * 0.62 + 0.02;
+    }
+  }
+  const SEA_LEVEL = 0.5;
+  const comps = labelComponents(W, H, (i) => raw[i] > SEA_LEVEL);
+  const keep = new Set([...comps.sizes.entries()].filter(([, n]) => n >= 150).map(([c]) => c));
+  let maxLand = SEA_LEVEL + 1e-6;
+  for (let i = 0; i < W * H; i++) if (keep.has(comps.label[i])) maxLand = Math.max(maxLand, raw[i]);
+  const height = new Float32Array(W * H);
+  const moisture = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      let h = (raw[i] - SEA_LEVEL) / (maxLand - SEA_LEVEL);
+      if (h > 0 && !keep.has(comps.label[i])) h = -0.02 - rng.next() * 0.04;
+      height[i] = h;
+      moisture[i] = moistNoise(x, y);
+    }
+  }
+  return new Island(W, H, height, moisture, namer);
+}
+
+// ひとつの島。falloff が大きいほど島は小さくなる（離島の島では本島を少し小さくして沖を空ける）
+function generateSingle(rng, W, H, falloff, namer) {
   const octaves = [
     [makeNoise(rng, W, H, 40), 0.55],
     [makeNoise(rng, W, H, 18), 0.3],
@@ -44,7 +111,7 @@ export function generateIsland(rng, W = 160, H = 120) {
       const dx = (x / W - 0.5) * 2;
       const dy = (y / H - 0.5) * 2;
       const d = Math.sqrt(dx * dx + dy * dy);
-      raw[y * W + x] = n * 0.9 + 0.6 - d * d * 0.75;
+      raw[y * W + x] = n * 0.9 + 0.6 - d * d * falloff;
     }
   }
   const SEA_LEVEL = 0.5;
@@ -68,7 +135,7 @@ export function generateIsland(rng, W = 160, H = 120) {
       moisture[i] = moistNoise(x, y);
     }
   }
-  return new Island(W, H, height, moisture);
+  return new Island(W, H, height, moisture, namer);
 }
 
 // 4 近傍でつながった領域に番号をふる
@@ -99,7 +166,7 @@ function labelComponents(W, H, isIn) {
 }
 
 export class Island {
-  constructor(W, H, height, moisture) {
+  constructor(W, H, height, moisture, namer = null) {
     this.W = W;
     this.H = H;
     this.elevation = height; // 名前は昔のまま（標高）。海は負
@@ -109,7 +176,7 @@ export class Island {
     this.landmass = new Int32Array(W * H).fill(-1); // 陸地のつながりの番号（海は -1）
     this.landmasses = []; // { id, size, name, cx, cy }
     this.nextLandmassId = 1;
-    this.namer = null; // (n) => 島の名前
+    this.namer = namer; // (id) => 島の名前
     // 各マスが「これまでに属したことのある、いちばん小さい島」。陸橋でつながった小島が
     // また切り離されたとき、元の名前で呼べるようにする
     this.homeId = new Int32Array(W * H).fill(-1);
@@ -264,6 +331,44 @@ export class Island {
       }
     }
     return best;
+  }
+
+  // 陸から minDist〜maxDist マス沖に半径 r の小島をつくり、いちばん近い岸までの海底を浅瀬にする。
+  // 浅瀬（標高 −0.05）は、寒冷期に海面が下がると陸橋になる。変更後は reclassify() が必要
+  addIslet(rng, { minDist = 14, maxDist = 26, r = 8, height = 0.35 } = {}) {
+    const { W, H, elevation, terrain } = this;
+    for (let t = 0; t < 400; t++) {
+      const i = rng.int(W * H);
+      const x = (i % W) + 0.5;
+      const y = Math.floor(i / W) + 0.5;
+      if (terrain[i] !== TERRAIN.SEA || x < r || y < r || x > W - r || y > H - r) continue;
+      let near = Infinity;
+      let nearCell = -1;
+      for (const c of this.landCells) {
+        const d = Math.hypot((c % W) + 0.5 - x, Math.floor(c / W) + 0.5 - y);
+        if (d < near) {
+          near = d;
+          nearCell = c;
+        }
+        if (near < minDist) break;
+      }
+      if (near < minDist || near > maxDist) continue;
+      this.sculpt(x / W, y / H, r, height - elevation[i]);
+      const tx = (nearCell % W) + 0.5;
+      const ty = Math.floor(nearCell / W) + 0.5;
+      for (let k = 0; k <= near; k++) {
+        const px = x + ((tx - x) * k) / near;
+        const py = y + ((ty - y) * k) / near;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const j = Math.floor(py + oy) * W + Math.floor(px + ox);
+            if (j >= 0 && j < W * H && elevation[j] < -0.05) elevation[j] = -0.05;
+          }
+        }
+      }
+      return true;
+    }
+    return false;
   }
 
   // 地形の編集：中心 (x, y)・半径 r（マス）の範囲の標高を delta だけ上げ下げする（中心ほど強く）
