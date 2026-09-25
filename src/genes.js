@@ -44,6 +44,11 @@ export const INHERITANCE = {
     short: '劣性致死',
     desc: 'l/l になると生まれる前に死ぬ。保因者（L/l）は健康なので集団に潜み続ける。近親交配で表に出やすい。体色遺伝子のすぐ近く（4cM）にあり、連鎖している。',
   },
+  dmi: {
+    label: '雑種の不和合（種分化の遺伝子）',
+    short: '不和合',
+    desc: '2 つの遺伝子座が組になっている。どちらの新型も単独なら無害だが、組の相手の新型と一緒になると子ができにくくなる（ドブジャンスキー・マラーの不和合）。1 つの集団では片方の新型しか広まれないが、海で隔てられた島どうしが別々の新型を広めると、その間の雑種は子を残しにくくなる。X 染色体上の新型は 1 本しかないオスで強く効くので、雑種のオスほど子ができにくい（ホールデンの規則）。',
+  },
   deleterious: {
     label: '劣性有害（遺伝的荷重）',
     short: '劣性有害',
@@ -96,6 +101,27 @@ const del = (key, chr, pos, n) => ({
   lof: true,
 });
 
+// 雑種の不和合の組。n が新型（派生型）、o が祖先型。
+// 最初の個体は、2 つの別の土地から来た集団のどちらかの出身。
+// 東の集団は組の前半に、西の集団は組の後半に新型を持つ（どちらもそれぞれの土地では無害だった）
+const dmi = (key, chr, pos, name, side) => ({
+  key,
+  chr,
+  pos,
+  name,
+  mode: 'dmi',
+  side,
+  alleles: ['o', 'n'],
+  freq: [0.5, 0.5],
+  labels: { o: '祖先型', n: '新型' },
+});
+export const ORIGIN_LABEL = ['東の集団', '西の集団'];
+export const DMI_PAIRS = [
+  ['HA1', 'HA2'],
+  ['HB1', 'HB2'],
+  ['HC1', 'HC2'],
+];
+
 // cM（センチモルガン）で染色体上の位置を表す。
 export const LOCI = [
   {
@@ -125,6 +151,8 @@ export const LOCI = [
   poly('FR1', 'C1', 80, 'fur', 1),
   poly('MB1', 'C1', 95, 'metab', 1),
   del('DL1', 'C1', 110, 1),
+  dmi('HA1', 'C1', 70, '不和合A-1', 0),
+  dmi('HC1', 'C1', 20, '不和合C-1', 0),
   {
     key: 'PAT',
     chr: 'C2',
@@ -151,6 +179,7 @@ export const LOCI = [
   poly('SZ2', 'C2', 65, 'size', 2),
   limited('PT2', 'C2', 80, 'prefTail', '尾への好み2', 0.3),
   del('DL2', 'C2', 92, 2),
+  dmi('HB1', 'C2', 32, '不和合B-1', 0),
   {
     key: 'VIT',
     chr: 'C3',
@@ -170,6 +199,9 @@ export const LOCI = [
   limited('PG2', 'C3', 68, 'prefGlow', '発光への好み2', 0.3),
   poly('SZ4', 'C3', 75, 'size', 4),
   del('DL3', 'C3', 85, 3),
+  dmi('HA2', 'C3', 57, '不和合A-2', 1),
+  dmi('HB2', 'X', 12, '不和合B-2', 1),
+  dmi('HC2', 'X', 45, '不和合C-2', 1),
   limited('TL4', 'X', 60, 'tail', '尾の長さ4', 0.4),
   {
     key: 'GLW',
@@ -207,6 +239,42 @@ const PREF_TAIL_KEYS = LOCI.filter((l) => l.trait === 'prefTail').map((l) => IND
 const PREF_GLOW_KEYS = LOCI.filter((l) => l.trait === 'prefGlow').map((l) => INDEX[l.key]);
 const METAB_KEYS = LOCI.filter((l) => l.trait === 'metab').map((l) => INDEX[l.key]);
 
+const DMI_IDX = DMI_PAIRS.map(([a, b]) => [INDEX[a], INDEX[b]]);
+
+// 新型の割合（0〜1）。オスの X 連鎖座は 1 本だけ数える
+function derivedDose(genome, i) {
+  let n = 0;
+  let copies = 0;
+  for (const a of [genome.m[i], genome.p[i]]) {
+    if (a === null) continue;
+    copies++;
+    if (a === 'n') n++;
+  }
+  return copies ? n / copies : 0;
+}
+
+// 子のできやすさ（稔性）0〜1。組ごとに「新型の割合 × 相手の新型の割合」だけ下がる。
+// 両方の新型をそろって 2 本ずつ持つと子ができない。雑種第 1 代（o/n と o/n）なら 1 組あたり 1/4 下がる
+export function dmiFertility(genome) {
+  let f = 1;
+  for (const [a, b] of DMI_IDX) f *= 1 - derivedDose(genome, a) * derivedDose(genome, b);
+  return f;
+}
+
+// 不和合の新型のうち、東の新型が占める割合（新型がなければ null）
+export function eastShare(genome) {
+  let east = 0;
+  let all = 0;
+  for (const pair of DMI_IDX) {
+    pair.forEach((i, side) => {
+      const d = derivedDose(genome, i);
+      all += d;
+      if (side === 0) east += d;
+    });
+  }
+  return all > 0 ? east / all : null;
+}
+
 // ポリジーンの値：「＋」の割合（0〜1）。オスの X 連鎖座は 1 本だけ数える。
 function polyValue(genome, idxs) {
   let plus = 0;
@@ -229,10 +297,17 @@ function sampleAllele(locus, rng) {
   return locus.alleles[i];
 }
 
-export function randomGenome(sex, rng) {
+// origin：不和合の遺伝子について、どちらの土地の出身か（0 = 東、1 = 西）
+export function randomGenome(sex, rng, origin = rng.int(2)) {
   const m = [];
   const p = [];
   for (const locus of LOCI) {
+    if (locus.mode === 'dmi') {
+      const a = locus.side === origin ? 'n' : 'o';
+      m.push(a);
+      p.push(sex === 'M' && isXLinked(locus) ? null : a);
+      continue;
+    }
     m.push(sampleAllele(locus, rng));
     p.push(sex === 'M' && isXLinked(locus) ? null : sampleAllele(locus, rng));
   }
@@ -340,10 +415,13 @@ export function express(genome) {
   let load = 0;
   for (const i of DEL_KEYS) if (genome.m[i] === 'd' && genome.p[i] === 'd') load++;
 
+  const fertility = dmiFertility(genome);
+
   return {
     color,
     pattern,
     ear,
+    fertility,
     tailGene,
     tail: male ? tailGene : 0, // メスの尾は常に短い
     prefTailGene,
@@ -408,6 +486,8 @@ export function locusEffect(key, genome, pheno) {
       return het ? '免疫力：強（ヘテロ）' : '免疫力：弱';
     case 'lethal':
       return het ? '健康（保因者）' : '健康';
+    case 'dmi':
+      return al.includes('n') ? '新型あり' : '祖先型のみ';
     case 'deleterious':
       return al.every((a) => a === 'd') ? '発症（虚弱）' : het ? '健康（保因者）' : '健康';
     default:

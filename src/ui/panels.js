@@ -15,6 +15,7 @@ import {
   PATTERN_LABEL,
   EAR_LABEL,
   tailLabel,
+  DMI_PAIRS,
 } from '../genes.js';
 import {
   alleleFrequencies,
@@ -206,6 +207,11 @@ function geneCards(c) {
       '伴性',
     ),
   ];
+  const dmiChips = DMI_PAIRS.map(
+    (pair, i) =>
+      `<span class="muted small">${'ABC'[i]}</span>${pair.map((k) => al(k).map((a) => chip(a == null ? null : a === 'n' ? (LOCUS[k].side === 0 ? '東' : '西') : 'o')).join('')).join('')}`,
+  ).join('<span class="muted"> · </span>');
+  const fert = ph.fertility ?? 1;
   const health = [
     card('免疫型', hetVit ? 'A/B（強い）' : ph.resistance > 0.5 ? 'A/A' : 'B/B', chips('VIT', () => false), hetVit ? 'ヘテロなので病気に最も強い' : '', '超優性'),
     card('致死因子', '健康', chips('LET', (a) => a === 'l'), al('LET').includes('l') ? '保因者：同じ保因者との子の 1/4 は生まれない' : '', '劣性致死'),
@@ -215,6 +221,13 @@ function geneCards(c) {
       `<div class="gchips">${dl.map((k) => al(k).map((a) => chip(a, a === 'd' && !(al(k)[0] === 'd' && al(k)[1] === 'd'))).join('')).join('<span class="muted"> · </span>')}</div>`,
       ph.load ? 'd/d の座があり体が弱い' : dCount ? `${dCount} 座で d を隠し持つ` : '',
       '劣性有害',
+    ),
+    card(
+      '子のできやすさ',
+      pct(fert),
+      `<div class="gchips">${dmiChips}</div>`,
+      fert < 0.999 ? '同じ組の東と西の新型を両方持つ雑種。子ができにくい' : '組ごとに東か西の片方しか持たない',
+      '不和合',
     ),
   ];
   const expressedValue = {
@@ -442,7 +455,19 @@ export class StatsPanel {
         ? `<p class="small">島どうしの遺伝的な違い F<sub>ST</sub> = <strong>${isl.fst.toFixed(3)}</strong> <span class="muted">（0 なら同じ集団、0.05 を超えると島ごとに違いが目立ち、0.25 を超えると大きく分かれている）</span></p>`
         : world.island.landmasses.length > 1
           ? '<p class="muted small">人が住む島が 2 つ以上になると、島どうしの遺伝的な違いを表示します。流木でまれに海を渡り、寒冷期に海面が下がると浅瀬が陸橋になります。</p>'
-          : '<p class="muted small">いまは島が 1 つだけです。「✏️ 地形を編集」で小島をつくれます。</p>');
+          : '<p class="muted small">いまは島が 1 つだけです。「✏️ 地形を編集」で小島をつくれます。</p>') +
+      (isl.barriers.length
+        ? `<p class="small"><strong>種の壁</strong> <span class="muted">（島の間の雑種が、島の中どうしの子と比べてどれだけ子を残せるか。50% を下回ると別の種とみなす）</span></p>${isl.barriers
+            .slice()
+            .sort((a, b) => a.hybrid - b.hybrid)
+            .slice(0, 6)
+            .map((b) => {
+              const nm = (id) => world.island.landmasses.find((m) => m.id === id)?.name ?? '?';
+              const tag = b.hybrid < 0.5 ? '<span class="badge gene">別の種</span>' : b.hybrid < 0.8 ? '<span class="badge">壁あり</span>' : '';
+              return `<div class="bar-row"><span>${nm(b.a)} × ${nm(b.b)} ${tag}</span><div class="track"><div class="fill" style="width:${b.hybrid * 100}%"></div></div><span class="num">${pct(b.hybrid)}</span></div>`;
+            })
+            .join('')}`
+        : '');
     const clans = world.clanTree();
     const clanMax = Math.max(1, ...clans.map((c) => c.n));
     this.el.querySelector('#clan-tree').innerHTML = clans

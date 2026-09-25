@@ -3,6 +3,7 @@
 import { TERRAIN } from '../island.js';
 import { cssVar } from './charts.js';
 import { groundOfCell } from '../ecology.js';
+import { eastShare } from '../genes.js';
 
 
 // 近交係数用の単色（青）の連続スケール
@@ -33,6 +34,12 @@ export const DISPLAY_LEGENDS = {
     ['A/A', cssVar('--series-2')],
     ['A/B（強い）', cssVar('--series-3')],
     ['B/B', cssVar('--series-5')],
+  ],
+  origin: () => [
+    ['東の新型', '#2f7fd8'],
+    ['西の新型', '#e0892e'],
+    ['雑種（子ができにくい）', '#c0307a'],
+    ['祖先型のみ', '#9a9a9a'],
   ],
   age: () => [
     ['0歳', '#fff3c4'],
@@ -121,6 +128,11 @@ export class MapView {
       case 'immunity': {
         const r = c.pheno.resistance;
         return r > 0.8 ? cssVar('--series-3') : r > 0.5 ? cssVar('--series-2') : cssVar('--series-5');
+      }
+      case 'origin': {
+        if ((c.pheno.fertility ?? 1) < 0.999) return '#c0307a';
+        const e = c.genome ? eastShare(c.genome) : null;
+        return e == null ? '#9a9a9a' : lerpColor('#e0892e', '#2f7fd8', e);
       }
       case 'age':
         return c.age < 84 ? lerpColor('#fff3c4', '#f0a04b', c.age / 84) : lerpColor('#f0a04b', '#8c2d19', (c.age - 84) / 96);

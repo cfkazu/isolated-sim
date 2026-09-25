@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRng } from '../src/rng.js';
-import { LOCI, INDEX, makeGamete, fertilize, express, genotypeString, randomGenome } from '../src/genes.js';
+import { LOCI, INDEX, makeGamete, fertilize, express, genotypeString, randomGenome, dmiFertility } from '../src/genes.js';
 
 // 全遺伝子座を指定アレルで埋めたゲノムを作る（オスは X 座の p が null）
 function genome(sex, overrides = {}) {
@@ -191,4 +191,30 @@ test('量的形質のまとめ: 全遺伝子座の「＋」を合計する（オ
   assert.ok(Math.abs(tail.value - express(m).tailGene) < 1e-9);
   const f = genome('F', { TL4: ['+', '+'] });
   assert.equal(polygenicSummary(f).find((t) => t.trait === 'tail').copies, 8);
+});
+
+test('雑種の不和合：東と西の間の子は子ができにくく、X 上の新型はオスの雑種で強く効く', () => {
+  const rng = createRng('dmi');
+  const eastF = randomGenome('F', rng, 0);
+  const eastM = randomGenome('M', rng, 0);
+  const westF = randomGenome('F', rng, 1);
+  const westM = randomGenome('M', rng, 1);
+  for (const g of [eastF, eastM, westF, westM]) assert.equal(dmiFertility(g), 1);
+  let daughters = 0;
+  let sons = 0;
+  for (let k = 0; k < 60; k++) {
+    // 東の母 × 西の父の娘：3 組とも o/n と o/n なので 0.75^3
+    const sp = makeGamete(westM, 'M', rng);
+    if (!sp.hasY) {
+      assert.ok(Math.abs(dmiFertility(fertilize(makeGamete(eastF, 'F', rng), sp).genome) - 0.75 ** 3) < 1e-9);
+      daughters++;
+    }
+    // 西の母 × 東の父の息子：X 上の西の新型を 1 本だけ持つので、B と C の組が強く効く
+    const sp2 = makeGamete(eastM, 'M', rng);
+    if (sp2.hasY) {
+      assert.ok(Math.abs(dmiFertility(fertilize(makeGamete(westF, 'F', rng), sp2).genome) - 0.75 * 0.5 * 0.5) < 1e-9);
+      sons++;
+    }
+  }
+  assert.ok(daughters > 10 && sons > 10);
 });

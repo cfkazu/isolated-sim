@@ -118,6 +118,8 @@ export class World {
     this.creatures = [];
     this.history = [];
     this.log = [];
+    // 別の種になった島の組 → その年
+    this.speciation = {};
     this.epidemicMonths = 0;
     this.famineMonths = 0;
     this.yearNoise = 0;
@@ -149,6 +151,7 @@ export class World {
     this._recordYear();
     this._startCohort();
     this.addLog(`🏝️ ${n} 匹の生物が${this.island.geology.label}に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
+    this.addLog('🧭 百匹は東と西の二つの土地から来た。東と西の間の子は、子ができにくいことがある（雑種の不和合）。', 'gene');
   }
 
   get year() {
@@ -172,6 +175,7 @@ export class World {
     this.counters = {
       births: 0,
       stillborn: 0,
+      infertile: 0,
       deaths: Object.fromEntries(Object.keys(DEATH_CAUSES).map((k) => [k, 0])),
       matings: 0,
       inbredBirths: 0,
@@ -539,8 +543,14 @@ export class World {
       // 栄養状態がよいほど多く産む
       // 代謝が速い母ほど子に回せるエネルギーが多い
       const litter = Math.min(4, 1 + rng.poisson(1.8 * f.condition * f.condition * f.pheno.metabolism));
+      // 雑種の不和合：両親の稔性が低いほど、卵や精子がうまく働かず子ができない
+      const fertile = f.pheno.fertility * mate.pheno.fertility;
       let born = 0;
       for (let k = 0; k < litter; k++) {
+        if (fertile < 1 && rng.next() > fertile) {
+          this.counters.infertile++;
+          continue;
+        }
         const egg = makeGamete(f.genome, 'F', rng, o.mutationRate);
         const sperm = makeGamete(mate.genome, 'M', rng, o.mutationRate);
         const z = fertilize(egg, sperm);
@@ -823,6 +833,23 @@ export class World {
     return out;
   }
 
+  // 島どうしの雑種の稔性（島の中どうしの子と比べた割合）から、種分化を年代記に記す。
+  // 境目は表示のためだけのもの：半分を下回ったら「別の種」、9 割を超えたら壁が消えたとみなす
+  _speciationEvents(barriers) {
+    const name = (id) => this.island.landmasses.find((m) => m.id === id)?.name ?? '?';
+    for (const { a, b, hybrid } of barriers) {
+      const key = `${Math.min(a, b)}-${Math.max(a, b)}`;
+      const pair = `${name(a)}と${name(b)}`;
+      if (hybrid < 0.5 && !this.speciation[key]) {
+        this.speciation[key] = this.year;
+        this.addLog(`🧬 ${pair}の集団は別の種になった。間の雑種は、ふつうの子の ${Math.round(hybrid * 100)}% しか子を残せない。`, 'gene');
+      } else if (hybrid > 0.9 && this.speciation[key]) {
+        this.addLog(`🤝 ${pair}の集団が再び交わり、種の壁が消えた（${this.year - this.speciation[key]} 年ぶり）。`, 'gene');
+        delete this.speciation[key];
+      }
+    }
+  }
+
   _milestones() {
     const h = this.history.at(-1);
     const he0 = this.history[0].He || 1;
@@ -1028,12 +1055,14 @@ export class World {
   }
 
   addCastaways(n = 6) {
+    // 漂着者は同じ土地（東か西）から一緒に流れてくる
+    const origin = this.rng.int(2);
     for (let k = 0; k < n; k++) {
       const sex = k % 2 === 0 ? 'F' : 'M';
       const pos = this.island.randomLand(this.rng, (t) => t === TERRAIN.BEACH);
       this._spawn({
         sex,
-        genome: randomGenome(sex, this.rng),
+        genome: randomGenome(sex, this.rng, origin),
         ...pos,
         age: 24 + this.rng.int(36),
         fatherId: null,
@@ -1080,6 +1109,7 @@ export class World {
       females: cs.length - males,
       births: this.counters.births,
       stillborn: this.counters.stillborn,
+      infertile: this.counters.infertile,
       inbredBirths: this.counters.inbredBirths,
       deaths: { ...this.counters.deaths },
       meanF: cs.length ? sumF / cs.length : 0,
@@ -1093,7 +1123,12 @@ export class World {
       sexsel: sexualSelectionStats(cs),
       islands: (() => {
         const st = islandStats(cs, this.island);
-        return { fst: st.fst, pops: Object.fromEntries(st.rows.filter((r) => r.pop > 0).map((r) => [r.name, r.pop])) };
+        this._speciationEvents(st.barriers);
+        return {
+          fst: st.fst,
+          pops: Object.fromEntries(st.rows.filter((r) => r.pop > 0).map((r) => [r.name, r.pop])),
+          hybrid: st.barriers.length ? Math.min(...st.barriers.map((b) => b.hybrid)) : null,
+        };
       })(),
       selection: this.history.length ? selectionStats(this.cohort, this.cohortTick, this.opts.maturityMonths) : null,
       ...this._founderRecord(cs),

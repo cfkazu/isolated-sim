@@ -9,7 +9,7 @@ import { Vegetation } from './ecology.js';
 import { Pedigree } from './pedigree.js';
 import { makeName } from './names.js';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 const COLORS = ['black', 'green', 'white'];
 const PATTERNS = ['spots', 'stripes', 'both', 'plain'];
@@ -56,6 +56,7 @@ function packDead(records, seed) {
     fur: f32((r) => r.pheno.fur),
     resistance: f32((r) => r.pheno.resistance),
     metabolism: f32((r) => r.pheno.metabolism),
+    fertility: f32((r) => r.pheno.fertility),
     // 新しい死亡個体（血縁係数の計算に使う期間内）だけゲノムが残っている
     genome: records.map((r) => (r.genome ? r.genome.m.map((a) => a ?? ALLELE_NULL).join('') + r.genome.p.map((a) => a ?? ALLELE_NULL).join('') : null)),
   };
@@ -98,6 +99,7 @@ function unpackDead(d, seed) {
         lethal: false,
         load: d.load[i],
         metabolism: d.metabolism[i],
+        fertility: d.fertility[i],
       },
       x: 0,
       y: 0,

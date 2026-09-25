@@ -1,6 +1,6 @@
 // 集団遺伝学の統計：対立遺伝子頻度、ヘテロ接合度、ハーディー・ワインベルグ期待値など。
 
-import { LOCI, INDEX, LOCUS, isXLinked, genotypeString } from './genes.js';
+import { LOCI, INDEX, LOCUS, DMI_PAIRS, isXLinked, genotypeString } from './genes.js';
 
 export function alleleFrequencies(creatures) {
   const out = {};
@@ -423,6 +423,36 @@ export function mendelianSummary(creatures, freqs = alleleFrequencies(creatures)
     note: `l/l の子は生まれてこない。保因者は健康なまま ${pctText(letCarrier / n)} いる。`,
   });
 
+  // 雑種の不和合：組ごとに、東の新型（前半）と西の新型（後半）の割合
+  const fert = creatures.map((c) => c.pheno.fertility ?? 1);
+  const full = fert.filter((f) => f > 0.999).length;
+  const low = fert.filter((f) => f < 0.6).length;
+  const pairText = DMI_PAIRS.map(([a, b], i) => {
+    const fa = freqs[a].freq.n;
+    const fb = freqs[b].freq.n;
+    const who = fa > 0.9 && fb < 0.1 ? '東型に統一' : fb > 0.9 && fa < 0.1 ? '西型に統一' : fa < 0.1 && fb < 0.1 ? '祖先型に戻った' : '混在';
+    return `${'ABC'[i]}：${who}`;
+  }).join('、');
+  cards.push({
+    key: 'HA1',
+    title: '雑種の不和合（3 組）',
+    segments: [
+      { label: '子ができやすい（100%）', value: full / n, color: '--grid' },
+      { label: 'やや低い', value: (n - full - low) / n, color: '--series-2' },
+      { label: '低い（60% 未満）', value: low / n, color: '--bad' },
+    ],
+    alleles: (() => {
+      const east = DMI_PAIRS.reduce((t, [a]) => t + freqs[a].freq.n, 0) / DMI_PAIRS.length / 2;
+      const west = DMI_PAIRS.reduce((t, [, b]) => t + freqs[b].freq.n, 0) / DMI_PAIRS.length / 2;
+      return [
+        { label: '東の新型', value: east, color: '--series-1' },
+        { label: '西の新型', value: west, color: '--series-2' },
+        { label: '祖先型', value: 1 - east - west, color: '--grid' },
+      ];
+    })(),
+    note: `${pairText}。組ごとに東か西のどちらかに統一されると、島の中では子ができにくい個体がいなくなる。別々に統一された島どうしの雑種は子ができにくい。`,
+  });
+
   const dl = ['DL1', 'DL2', 'DL3'];
   const sick = count((c) => c.pheno.load > 0);
   const dCarrier = count((c) => c.pheno.load === 0 && dl.some((k) => has(c, k, 'd')));
@@ -453,6 +483,41 @@ function allelesOf(c, key) {
 // 陸地（島）ごとの個体数と見た目、島どうしの遺伝的な違い（F_ST）。
 // F_ST = (H_T − H_S) / H_T。H_T は全体をひとつの集団とみたときの期待ヘテロ接合度、H_S は島ごとの値の（個体数で重みをつけた）平均。
 // 0 なら島の間で遺伝子の割合が同じ、大きいほど島ごとに別々の道を歩んでいる。
+// 2 つの集団の間の雑種（第 1 代）の稔性の期待値。
+// 島ごとの新型の割合から、両方向の交配（A♀×B♂ と B♀×A♂）と両方の性の子を平均する。
+// オスの X は母から来るので、X 上の新型はオスの雑種で強く効く（ホールデンの規則）
+export function derivedFreq(creatures, key) {
+  const i = INDEX[key];
+  let n = 0;
+  let copies = 0;
+  for (const c of creatures) {
+    for (const a of [c.genome.m[i], c.genome.p[i]]) {
+      if (a === null) continue;
+      copies++;
+      if (a === 'n') n++;
+    }
+  }
+  return copies ? n / copies : 0;
+}
+
+export function hybridFertility(freqA, freqB) {
+  let total = 0;
+  for (const [mom, dad] of [
+    [freqA, freqB],
+    [freqB, freqA],
+  ]) {
+    for (const male of [false, true]) {
+      let f = 1;
+      for (const pair of DMI_PAIRS) {
+        const [d1, d2] = pair.map((k) => (male && isXLinked(LOCUS[k]) ? mom[k] : (mom[k] + dad[k]) / 2));
+        f *= 1 - d1 * d2;
+      }
+      total += f / 4;
+    }
+  }
+  return total;
+}
+
 export function islandStats(creatures, island) {
   const groups = new Map();
   for (const c of creatures) {
@@ -478,5 +543,17 @@ export function islandStats(creatures, island) {
     HS /= all.length;
     fst = HT > 0 ? Math.max(0, (HT - HS) / HT) : 0;
   }
-  return { rows: rows.map(({ creatures: _, ...r }) => r), fst };
+  // 島どうしの種の壁：雑種の稔性を、それぞれの島の中での稔性の平均と比べる
+  const barriers = [];
+  const big = peopled.filter((r) => r.pop >= 10);
+  const freqs = new Map(big.map((r) => [r.id, Object.fromEntries(DMI_PAIRS.flat().map((k) => [k, derivedFreq(r.creatures, k)]))]));
+  for (let i = 0; i < big.length; i++) {
+    for (let j = i + 1; j < big.length; j++) {
+      const a = freqs.get(big[i].id);
+      const b = freqs.get(big[j].id);
+      const within = (hybridFertility(a, a) + hybridFertility(b, b)) / 2;
+      barriers.push({ a: big[i].id, b: big[j].id, hybrid: within > 0 ? Math.min(1, hybridFertility(a, b) / within) : 1 });
+    }
+  }
+  return { rows: rows.map(({ creatures: _, ...r }) => r), fst, barriers };
 }
