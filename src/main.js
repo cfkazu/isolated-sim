@@ -229,7 +229,67 @@ $('#display-mode').addEventListener('change', (e) => {
   renderLegend();
 });
 
+// ───── 地形編集 ─────
+const edit = { on: false, raise: true, painting: false, last: 0 };
+
+function mapPoint(e) {
+  const r = $('#map').getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+}
+
+function sculptAt(e) {
+  const p = mapPoint(e);
+  const r = Number($('#brush-size').value);
+  mapView.brush = { ...p, r, raise: edit.raise };
+  if (!edit.painting) return;
+  const now = performance.now();
+  // 1 回のなぞりで少しずつ変える（50ms ごと）
+  if (now - edit.last < 50) return;
+  edit.last = now;
+  state.world.sculpt(p.x, p.y, r, edit.raise ? 0.06 : -0.06);
+  state.world.terrainChanged('edit');
+}
+
+$('#btn-edit').addEventListener('click', () => {
+  edit.on = !edit.on;
+  $('#btn-edit').setAttribute('aria-pressed', String(edit.on));
+  $('#edit-bar').hidden = !edit.on;
+  $('.map-wrap').classList.toggle('editing', edit.on);
+  if (!edit.on) mapView.brush = null;
+});
+for (const b of document.querySelectorAll('[data-brush]')) {
+  b.addEventListener('click', () => {
+    edit.raise = b.dataset.brush === 'raise';
+    for (const x of document.querySelectorAll('[data-brush]')) x.setAttribute('aria-pressed', String(x === b));
+  });
+}
+$('#btn-islet').addEventListener('click', () => {
+  if (!state.world.createIslet()) state.world.addLog('（小島をつくれる沖が見つからなかった）');
+  refresh(true);
+});
+$('#map').addEventListener('pointerdown', (e) => {
+  if (!edit.on) return;
+  edit.painting = true;
+  edit.last = 0;
+  $('#map').setPointerCapture(e.pointerId);
+  sculptAt(e);
+});
+$('#map').addEventListener('pointermove', (e) => {
+  if (edit.on) sculptAt(e);
+});
+const endPaint = () => {
+  if (!edit.painting) return;
+  edit.painting = false;
+  refresh(true);
+};
+$('#map').addEventListener('pointerup', endPaint);
+$('#map').addEventListener('pointercancel', endPaint);
+$('#map').addEventListener('pointerleave', () => {
+  if (!edit.painting) mapView.brush = null;
+});
+
 $('#map').addEventListener('click', (e) => {
+  if (edit.on) return;
   const c = mapView.pick(state.world, e.clientX, e.clientY);
   state.selectedId = c ? c.id : null;
   // 家系図を見ているときは、選んだ個体を中心に家系図を描き直す

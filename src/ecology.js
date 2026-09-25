@@ -46,30 +46,42 @@ export function contrast(body, ground) {
 export class Vegetation {
   constructor(island, fertility = 1) {
     this.island = island;
+    this.fertility = fertility;
     this.FW = Math.ceil(island.W / FOOD_CELL);
     this.FH = Math.ceil(island.H / FOOD_CELL);
     const n = this.FW * this.FH;
     this.cap = new Float32Array(n);
     this.veg = new Float32Array(n);
     this.elev = new Float32Array(n); // 草のマスの平均標高（陸地のみ）
+    this.recomputeCaps();
+    for (let i = 0; i < n; i++) this.veg[i] = this.cap[i] * 0.8;
+  }
+
+  // 地形から草の上限と平均標高を計算し直す（海面の上下や地形の編集のあと）。
+  // 新しく陸になった場所は、根の分（上限の ROOT）から草が育ちはじめる。
+  recomputeCaps() {
+    const island = this.island;
+    const n = this.FW * this.FH;
+    const cap = new Float32Array(n);
+    const elev = new Float32Array(n);
     const count = new Float32Array(n);
     const land = new Float32Array(n);
     for (let y = 0; y < island.H; y++) {
       for (let x = 0; x < island.W; x++) {
         const f = Math.floor(y / FOOD_CELL) * this.FW + Math.floor(x / FOOD_CELL);
         const i = y * island.W + x;
-        this.cap[f] += TERRAIN_CAP[island.terrain[i]];
+        cap[f] += TERRAIN_CAP[island.terrain[i]];
         count[f]++;
         if (island.terrain[i] !== TERRAIN.SEA) {
-          this.elev[f] += island.elevation[i];
+          elev[f] += island.elevation[i];
           land[f]++;
         }
       }
     }
     for (let i = 0; i < n; i++) {
-      this.cap[i] = (this.cap[i] / count[i]) * fertility;
-      this.veg[i] = this.cap[i] * 0.8;
-      this.elev[i] = land[i] ? this.elev[i] / land[i] : 0;
+      this.cap[i] = (cap[i] / count[i]) * this.fertility;
+      this.elev[i] = land[i] ? elev[i] / land[i] : 0;
+      this.veg[i] = Math.min(this.cap[i], Math.max(this.veg[i], ROOT * this.cap[i]));
     }
   }
 
@@ -124,13 +136,6 @@ export class Vegetation {
     return wsum > 0 ? sum / wsum : this.fraction(this.cellOfIslandCell(i));
   }
 
-  setFertility(ratio) {
-    for (let i = 0; i < this.cap.length; i++) {
-      this.cap[i] *= ratio;
-      this.veg[i] = Math.min(this.veg[i], this.cap[i]);
-    }
-  }
-
   // その場所の気温で成長速度が決まる（ロジスティック成長）。0℃ 以下（雪の下）では育たない。
   // localTemp(標高) は標高が高いほど寒い。
   grow(localTemp, drought) {
@@ -180,7 +185,7 @@ export const PREDATOR = {
   killsPerBirth: 12, // これだけ食べると 1 匹増える
   mortality: 0.033, // 1 か月あたりの自然死亡率
   immigrationChance: 0.04, // 島にいないとき、1 年あたりに渡ってくる確率
-  interference: 12, // 捕食者どうしの干渉：この数の捕食者がいると、1 匹あたりの狩りの効率が半分近くに落ちる（縄張り争い）
+  interference: 20, // 捕食者どうしの干渉：この数の捕食者がいると、1 匹あたりの狩りの効率が半分近くに落ちる（縄張り争い）
 };
 
 // 各獲物の 1 か月の被食確率を計算する。

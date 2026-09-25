@@ -1054,3 +1054,61 @@ details.full-genes summary {
   margin: 14px 0 6px;
   font-size: 13px;
 }
+
+/* ───── 地形編集 ───── */
+.edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.edit-bar[hidden] {
+  display: none;
+}
+
+.seg {
+  display: inline-flex;
+}
+
+.seg button {
+  border-radius: 0;
+}
+
+.seg button:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.seg button:last-child {
+  border-radius: 0 8px 8px 0;
+  margin-left: -1px;
+}
+
+.seg button[aria-pressed='true'],
+#btn-edit[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.map-wrap.editing #map {
+  cursor: crosshair;
+}
+
+.map-wrap.editing #map {
+  touch-action: none;
+}
+
+.island-row {
+  display: grid;
+  grid-template-columns: 8em 4em 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  margin: 4px 0;
+}

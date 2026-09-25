@@ -68,6 +68,11 @@ export class MapView {
 
   // 地面の色は植生と雪で毎月変わる。捕食者が見ている色（ecology.js の groundOfCell）をそのまま描く。
   _updateTerrain(world) {
+    // 地形が編集されたり海面が動いたりしたら、すぐに塗り直す
+    if (this.drawnVersion !== world.island.version) {
+      this.drawnVersion = world.island.version;
+      this.drawnTick = null;
+    }
     if (this.drawnTick === world.tick) return;
     // 草や雪はゆっくりしか変わらないので、塗り直しは 1 秒に 4 回まで（全マスの計算で数 ms かかる）
     const now = performance.now();
@@ -79,8 +84,10 @@ export class MapView {
     for (let i = 0; i < W * H; i++) {
       let rgb;
       if (terrain[i] === TERRAIN.SEA) {
-        const k = 1 + Math.max(-0.4, elevation[i]) * 1.2;
-        rgb = elevation[i] > -0.03 ? [96, 160, 200] : [43 * k, 108 * k, 163 * k];
+        // 海面からの深さで塗り分ける。浅瀬（寒冷期に陸橋になりうる所）は明るく
+        const d = elevation[i] - this.island.seaLevel;
+        const k = 1 + Math.max(-0.4, d) * 1.2;
+        rgb = d > -0.07 ? [104, 170, 206] : d > -0.14 ? [74, 138, 188] : [43 * k, 108 * k, 163 * k];
       } else {
         const shade = 0.9 + elevation[i] * 0.2;
         const g = groundOfCell(world, i);
@@ -186,6 +193,35 @@ export class MapView {
           }
         }
       }
+    }
+
+    // 島が 2 つ以上あれば名前を書く
+    const lands = world.island.landmasses.filter((m) => m.size >= 15);
+    if (lands.length > 1) {
+      ctx.font = `600 ${Math.max(11, 13 * scale)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      for (const m of lands) {
+        const x = m.cx * w;
+        const y = m.cy * h;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(20,30,40,0.75)';
+        ctx.strokeText(m.name, x, y);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(m.name, x, y);
+      }
+    }
+
+    // 地形編集の筆
+    if (this.brush) {
+      ctx.beginPath();
+      ctx.ellipse(this.brush.x * w, this.brush.y * h, (this.brush.r / world.island.W) * w, (this.brush.r / world.island.H) * h, 0, 0, Math.PI * 2);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = this.brush.raise ? 'rgba(255,255,255,0.9)' : 'rgba(20,60,120,0.9)';
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     // 選択個体と家族

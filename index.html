@@ -48,6 +48,22 @@
             </select>
           </label>
           <div id="map-legend" class="map-legend"></div>
+          <button type="button" id="btn-edit" aria-pressed="false">✏️ 地形を編集</button>
+        </div>
+        <div id="edit-bar" class="edit-bar" hidden>
+          <div class="seg" role="group" aria-label="筆の種類">
+            <button type="button" data-brush="raise" aria-pressed="true">⛰️ 盛る（陸にする）</button>
+            <button type="button" data-brush="lower" aria-pressed="false">🌊 掘る（海にする）</button>
+          </div>
+          <label>筆の大きさ
+            <select id="brush-size">
+              <option value="3">小</option>
+              <option value="6" selected>中</option>
+              <option value="10">大</option>
+            </select>
+          </label>
+          <button type="button" id="btn-islet">🏝️ 沖に小島をつくる</button>
+          <span class="muted small">地図の上をなぞって地形を変えます。海に沈んだ場所の生き物は近くの岸へ泳ぎ、遠ければおぼれます。</span>
         </div>
         <div class="map-wrap">
           <canvas id="map" aria-label="島の地図。個体をクリックすると詳細が見られます"></canvas>

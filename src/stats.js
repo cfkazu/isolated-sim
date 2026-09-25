@@ -448,3 +448,35 @@ function allelesOf(c, key) {
   const i = INDEX[key];
   return [c.genome.m[i], c.genome.p[i]].filter((a) => a !== null);
 }
+
+// ───── 島ごと ─────
+// 陸地（島）ごとの個体数と見た目、島どうしの遺伝的な違い（F_ST）。
+// F_ST = (H_T − H_S) / H_T。H_T は全体をひとつの集団とみたときの期待ヘテロ接合度、H_S は島ごとの値の（個体数で重みをつけた）平均。
+// 0 なら島の間で遺伝子の割合が同じ、大きいほど島ごとに別々の道を歩んでいる。
+export function islandStats(creatures, island) {
+  const groups = new Map();
+  for (const c of creatures) {
+    const id = island.landmassAt(c.x, c.y);
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(c);
+  }
+  const rows = island.landmasses
+    .map((m) => {
+      const cs = groups.get(m.id) ?? [];
+      const color = { black: 0, green: 0, white: 0 };
+      for (const c of cs) color[c.pheno.color]++;
+      return { id: m.id, name: m.name, size: m.size, pop: cs.length, color, creatures: cs };
+    })
+    .filter((r) => r.pop > 0 || r.size >= 15);
+  const peopled = rows.filter((r) => r.pop >= 2);
+  let fst = null;
+  if (peopled.length >= 2) {
+    const all = peopled.flatMap((r) => r.creatures);
+    const HT = heterozygosity(all).He;
+    let HS = 0;
+    for (const r of peopled) HS += heterozygosity(r.creatures).He * r.pop;
+    HS /= all.length;
+    fst = HT > 0 ? Math.max(0, (HT - HS) / HT) : 0;
+  }
+  return { rows: rows.map(({ creatures: _, ...r }) => r), fst };
+}

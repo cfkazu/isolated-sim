@@ -18,6 +18,7 @@ import {
 } from '../genes.js';
 import {
   alleleFrequencies,
+  islandStats,
   genotypeTable,
   SELECTION_TRAITS,
   mergeSelection,
@@ -304,6 +305,8 @@ export class StatsPanel {
     this.el = el;
     el.innerHTML = `<div id="stats-tiles" class="quick-stats"></div><div id="stats-charts"></div>
       <h3>昨年の死因</h3><div id="stats-deaths" class="bars"></div>
+      <h3>島ごと</h3>
+      <div id="islands"></div>
       <h3>いまの家（母系）</h3>
       <p class="small muted">家は母から子へ受け継がれ、まれにミトコンドリアの突然変異で分家が生まれます（生きている子孫が 10 匹に育つと家として独立）。字下げは分かれた元の家。</p>
       <div id="clan-tree" class="bars clan-tree"></div>
@@ -416,6 +419,21 @@ export class StatsPanel {
     ]);
     this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
     this.founders.setData(xs, [H.map((h) => h.founderLines ?? 0)]);
+    const isl = islandStats(world.creatures, world.island);
+    const total = Math.max(1, world.island.area);
+    this.el.querySelector('#islands').innerHTML =
+      isl.rows
+        .map(
+          (r) => `<div class="island-row"><span><strong>${r.name}</strong><div class="muted small">面積 ${pct(r.size / total)}</div></span>
+          <span class="num">${r.pop} 匹</span>
+          <span>${r.pop ? stackBar([{ label: '黒', value: r.color.black / r.pop, color: '--body-black' }, { label: '緑', value: r.color.green / r.pop, color: '--body-green' }, { label: '白', value: r.color.white / r.pop, color: '--body-white' }], false) : '<span class="muted">無人</span>'}</span></div>`,
+        )
+        .join('') +
+      (isl.fst != null
+        ? `<p class="small">島どうしの遺伝的な違い F<sub>ST</sub> = <strong>${isl.fst.toFixed(3)}</strong> <span class="muted">（0 なら同じ集団、0.05 を超えると島ごとに違いが目立ち、0.25 を超えると大きく分かれている）</span></p>`
+        : world.island.landmasses.length > 1
+          ? '<p class="muted small">人が住む島が 2 つ以上になると、島どうしの遺伝的な違いを表示します。流木でまれに海を渡り、寒冷期に海面が下がると浅瀬が陸橋になります。</p>'
+          : '<p class="muted small">いまは島が 1 つだけです。「✏️ 地形を編集」で小島をつくれます。</p>');
     const clans = world.clanTree();
     const clanMax = Math.max(1, ...clans.map((c) => c.n));
     this.el.querySelector('#clan-tree').innerHTML = clans
@@ -619,6 +637,7 @@ export function renderGuide(el) {
       <li><strong>捕食</strong>：島には捕食者がいる（数だけで表現）。体色と足元の地面の色の差が大きいほど見つかりやすい。地図に見えている地面の色がそのまま使われる。発光すると目立つ。捕食者は<strong>よく見かける色を重点的に探す</strong>（探索像）ので、多数派の色ほど狙われやすい。捕食者の数は獲物の量に応じて増減する。</li>
       <li><strong>気候</strong>：毛皮が厚く体が大きいほど寒さに強く、暑さに弱い。</li>
       <li><strong>飢え</strong>：草はマスごとに育ち、食べられて減る。同じマスの個体で頭数割りに分け合うので、たくさん食べる大きな個体ほど足りなくなりやすい。草は寒いと育たず、干ばつの年はほとんど育たない。食べ尽くされた地面は土の色になる（そこでは黒が目立たない）。</li>
+      <li><strong>海</strong>：生き物は泳げない。砂浜にいる個体がまれに流木に乗って沖へ流され、たどり着いた島に上陸する（多くは海で死ぬ）。寒冷期には海面が下がり、浅瀬が陸橋になって島どうしが陸続きになる。「✏️ 地形を編集」で陸を盛ったり海を掘ったり、沖に小島をつくったりできる。</li>
       <li><strong>病気</strong>：免疫型 A/B のヘテロが強い。疫病の年は差が大きく出る。</li>
       <li><strong>遺伝病</strong>：劣性有害遺伝子をホモでもつと弱る。劣性致死 l/l は生まれてこない。</li>
       <li><strong>性選択</strong>：大きいオスは他のオスに競り勝つ。そのうえでメスは、自分の<strong>好みの遺伝子</strong>に従って長い尾や発光のオスを選ぶ。

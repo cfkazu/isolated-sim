@@ -151,3 +151,41 @@ test('World: 家系の記録は古くなっても消えず、ゲノムだけが�
     if (!r.alive) assert.equal(r.genome, null);
   }
 });
+
+test('島: 海面が下がると陸が広がり、上げると戻る。小島は名前を保つ', () => {
+  const w = new World({ seed: 'sea' });
+  const area0 = w.island.area;
+  assert.ok(w.createIslet());
+  assert.equal(w.island.landmasses.length, 2);
+  const isletName = w.island.landmasses[1].name;
+  w.island.seaLevel = -0.12;
+  w.terrainChanged('sea-fall');
+  assert.ok(w.island.area > area0);
+  assert.equal(w.island.landmasses.filter((m) => m.size >= 15).length, 1, '浅瀬が陸橋になり小島と陸続きになる');
+  w.island.seaLevel = 0;
+  w.terrainChanged('sea-rise');
+  assert.equal(w.island.landmasses[1]?.name, isletName, '切り離された小島は元の名前で呼ばれる');
+});
+
+test('World: 個体は海の上にいない。交配は同じ島の中だけ', () => {
+  const w = new World({ seed: 'raft' });
+  w.createIslet();
+  const isletId = w.island.landmasses[1].id;
+  // 小島にメスだけを 3 匹送る。本島のオスとは交配できないので、小島では子が生まれない
+  const females = w.creatures.filter((c) => c.sex === 'F' && c.age >= 24).slice(0, 3);
+  const m = w.island.landmasses[1];
+  for (const f of females) {
+    const p = w.island.nearestLand(m.cx, m.cy, 10, isletId);
+    f.x = f.px = p.x;
+    f.y = f.py = p.y;
+  }
+  for (let i = 0; i < 12 * 5; i++) {
+    w.step();
+    for (const c of w.creatures) assert.ok(w.island.isLand(c.x, c.y));
+  }
+  const bornOnIslet = [...w.pedigree.records.values()].filter((r) => females.some((f) => f.id === r.motherId));
+  for (const r of bornOnIslet) {
+    const father = w.pedigree.get(r.fatherId);
+    assert.fail(`小島のメス #${r.motherId} に本島のオス #${father.id} の子が生まれた`);
+  }
+});

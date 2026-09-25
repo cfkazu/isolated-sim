@@ -12,6 +12,7 @@ import {
   sexualSelectionStats,
   selectionStats,
   founderShares,
+  islandStats,
 } from './stats.js';
 import { Vegetation, BODY_RGB, contrast, groundAt, predationHazards, PREDATOR } from './ecology.js';
 
@@ -38,6 +39,7 @@ export const DEATH_CAUSES = {
   genetic: '遺伝病',
   accident: '事故など',
   storm: '災害',
+  sea: '海（漂流・水没）',
 };
 
 export const MONTH_LABEL = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
@@ -49,6 +51,13 @@ const BRANCH_NAMED_AT = 10;
 
 // 超寒冷期の気温の下がり幅（℃）。冬は島じゅうが、夏でも山の上は雪に閉ざされる（これ以上寒いとほぼ確実に絶滅する）
 const SUPER_COLD_OFFSET = -14;
+
+// 海面の高さ：気温 1℃ の低下で標高 0.01 ぶん海面が下がる（氷床に水が取られる）
+const SEA_PER_DEGREE = 0.01;
+// 砂浜にいる個体が 1 年のうちに流木で沖へ流される確率
+const RAFT_CHANCE_PER_YEAR = 0.05;
+// 流木が陸に着かずに漂える距離（マス）
+const RAFT_RANGE = 70;
 
 // 1 か月に必要な草の量（体格 1 あたり。幼体は半分）
 const FOOD_NEED = 0.08;
@@ -66,6 +75,7 @@ export class World {
     this.opts = { ...DEFAULTS, ...options };
     this.rng = createRng(this.opts.seed);
     this.island = generateIsland(this.rng);
+    this.island.namer = (id) => `${makeName(this.opts.seed, `isle${id}`)}島`;
     this.pedigree = new Pedigree();
     this.clanNames = new Set();
     // 母系の系統（ミトコンドリアのハプログループ）。id → { id, name, parent, root, founderId, tick, established }
@@ -388,6 +398,7 @@ export class World {
       this._move(c);
     }
     this._updatePredators(kills);
+    this._raft();
     this.snowSum = (this.snowSum ?? 0) + this.snowCover;
 
     if (BREEDING_MONTHS.has(this.month)) this._breed();
@@ -424,6 +435,11 @@ export class World {
     return Math.max(0, Math.abs(this.localTemp(elevation) - this._optimalTemp(ph)) - 9);
   }
 
+  // 歩いて行けるのは同じ陸地の中だけ（海は泳いで渡れない）
+  _sameLand(c, nx, ny) {
+    return this.island.isLand(nx, ny) && this.island.landmassAt(nx, ny) === this.island.landmassAt(c.x, c.y);
+  }
+
   _move(c) {
     // お腹が空いている・寒すぎる（暑すぎる）ときは、隣の草のマスの中から
     // 「草の量 ÷ (先客 + 1)」を「気温のつらさ」で割り引いた値が一番よい方へ移る（採餌と、山を下りる／登る）
@@ -446,7 +462,7 @@ export class World {
           const f = fy * veg.FW + fx;
           const nx = (fx + this.rng.next()) / veg.FW;
           const ny = (fy + this.rng.next()) / veg.FH;
-          if (!this.island.isLand(nx, ny)) continue;
+          if (!this._sameLand(c, nx, ny)) continue;
           const sc = score(veg.edible(f) / ((occ ? occ[f] : 0) + 1), this._thermalStress(c.pheno, this.island.elevationAt(nx, ny)));
           if (sc <= bestScore) continue;
           bestScore = sc;
@@ -468,7 +484,7 @@ export class World {
       const a = this.rng.next() * Math.PI * 2;
       const nx = c.x + Math.cos(a) * step;
       const ny = c.y + Math.sin(a) * step * (4 / 3);
-      if (this.island.isLand(nx, ny)) {
+      if (this._sameLand(c, nx, ny)) {
         c.x = nx;
         c.y = ny;
         return;
@@ -507,7 +523,7 @@ export class World {
         }
         let x = f.x + (rng.next() - 0.5) * 0.01;
         let y = f.y + (rng.next() - 0.5) * 0.01;
-        if (!this.island.isLand(x, y)) {
+        if (!this._sameLand(f, x, y)) {
           x = f.x;
           y = f.y;
         }
@@ -536,7 +552,10 @@ export class World {
   _chooseMate(f, males) {
     const o = this.opts;
     const R2 = 0.14 * 0.14;
-    let candidates = males.filter((m) => {
+    // 相手は同じ陸地にいるオスだけ（海の向こうには行けない）
+    const land = this.island.landmassAt(f.x, f.y);
+    const sameLand = males.filter((m) => this.island.landmassAt(m.x, m.y) === land);
+    let candidates = sameLand.filter((m) => {
       const dx = m.x - f.x;
       const dy = (m.y - f.y) * 0.75;
       return dx * dx + dy * dy < R2;
@@ -544,7 +563,8 @@ export class World {
     if (candidates.length === 0) {
       // 近くに相手がいない：遠くまで探しに行けるのはたまに（低密度での繁殖の難しさ＝アリー効果）
       if (this.rng.next() > 0.35) return null;
-      candidates = males;
+      candidates = sameLand;
+      if (candidates.length === 0) return null;
     }
     const weights = candidates.map((m) => {
       if (o.inbreedingAvoidance && this.pedigree.kinship(f.id, m.id) >= 0.125) return 0;
@@ -580,6 +600,13 @@ export class World {
     }
     const d = this.climateTarget - this.climateOffset;
     this.climateOffset += Math.sign(d) * Math.min(Math.abs(d), this.climateRate ?? 1.5);
+    // 寒くなると海面が下がり、浅瀬が陸になる（陸橋・小島の出現）
+    const sea = SEA_PER_DEGREE * Math.min(0, this.climateOffset);
+    if (Math.abs(sea - this.island.seaLevel) > 0.004) {
+      const falling = sea < this.island.seaLevel;
+      this.island.seaLevel = sea;
+      this.terrainChanged(falling ? 'sea-fall' : 'sea-rise');
+    }
     this.yearNoise = this.rng.normal() * 1.2;
 
     this.pedigree.prune(this.tick - this.opts.pedigreeYears * 12);
@@ -737,6 +764,158 @@ export class World {
     }
   }
 
+  // 地形（海面・編集）が変わったあとの後始末：地形の分類、草の上限、海に沈んだ個体、島の出現・消失の記録
+  terrainChanged(reason = 'edit') {
+    const island = this.island;
+    const before = new Map(island.landmasses.map((m) => [m.id, m]));
+    const oldLand = island.landmass.slice();
+    const oldArea = island.area;
+    island.reclassify();
+    this.vegetation.recomputeCaps();
+
+    // 足元が海になった個体は近くの岸まで泳ぐ。岸が遠ければおぼれる
+    for (const c of this.creatures) {
+      if (island.isLand(c.x, c.y)) continue;
+      const shore = island.nearestLand(c.x, c.y, 6);
+      if (shore) {
+        c.x = c.px = shore.x;
+        c.y = c.py = shore.y;
+      } else this._kill(c, 'sea');
+    }
+    this.creatures = this.creatures.filter((c) => c.alive);
+
+    const after = new Map(island.landmasses.map((m) => [m.id, m]));
+    const why = reason === 'sea-fall' ? '海面が下がり、' : reason === 'sea-rise' ? '海面が上がり、' : '';
+    for (const [id, m] of before) {
+      if (after.has(id) || m.size < 15) continue;
+      // その陸地だったマスがいまどこかの陸地に入っていれば「陸続きになった」
+      let into = null;
+      for (let i = 0; i < oldLand.length && !into; i++) if (oldLand[i] === id && island.landmass[i] >= 0) into = after.get(island.landmass[i]);
+      if (into) this.addLog(`🌉 ${why}${m.name}が${into.name}と陸続きになった（陸橋）。`, 'event');
+      else this.addLog(`🌊 ${why}${m.name}が海に沈んだ。`, 'event');
+    }
+    for (const [id, m] of after) {
+      if (before.has(id) || m.size < 15) continue;
+      let from = null;
+      for (let i = 0; i < oldLand.length && !from; i++) if (island.landmass[i] === id && oldLand[i] >= 0) from = before.get(oldLand[i]);
+      if (from) this.addLog(`🌊 ${why}${m.name}が${from.name}から海で切り離された。`, 'event');
+      else this.addLog(`🏝️ ${why}海から${m.name}が姿を現した。`, 'event');
+    }
+    // 海面の上下で陸の広さが大きく変わったとき
+    if (reason.startsWith('sea')) {
+      const change = (island.area - (this.areaAtLastLog ?? oldArea)) / oldArea;
+      if (Math.abs(change) >= 0.05) {
+        this.addLog(change > 0 ? `🏖️ 海面が下がり、陸地が ${Math.round(change * 100)}% 広がった。浅瀬が陸になっていく。` : `🌊 海面が上がり、陸地が ${Math.round(-change * 100)}% 狭くなった。`, 'event');
+        this.areaAtLastLog = island.area;
+      }
+    }
+    this.terrainVersion = island.version;
+  }
+
+  // 地形の編集（盛る・掘る）
+  sculpt(x, y, r, delta) {
+    this.island.sculpt(x, y, r, delta);
+  }
+
+  // 本島から少し離れた沖に小島をつくる
+  createIslet() {
+    const island = this.island;
+    const { W, H, elevation, terrain } = island;
+    for (let t = 0; t < 400; t++) {
+      const i = this.rng.int(W * H);
+      const x = (i % W) + 0.5;
+      const y = Math.floor(i / W) + 0.5;
+      if (terrain[i] !== TERRAIN.SEA || x < 8 || y < 8 || x > W - 8 || y > H - 8) continue;
+      // 岸から 14〜26 マス離れた場所
+      let near = Infinity;
+      let nearCell = -1;
+      for (const c of island.landCells) {
+        const d = Math.hypot((c % W) + 0.5 - x, Math.floor(c / W) + 0.5 - y);
+        if (d < near) {
+          near = d;
+          nearCell = c;
+        }
+        if (near < 14) break;
+      }
+      if (near < 14 || near > 26) continue;
+      island.sculpt(x / W, y / H, 8, 0.35 - elevation[i]);
+      // いちばん近い岸までの海底を浅瀬にする。寒冷期に海面が下がると陸橋になる
+      const tx = (nearCell % W) + 0.5;
+      const ty = Math.floor(nearCell / W) + 0.5;
+      for (let k = 0; k <= near; k++) {
+        const px = x + ((tx - x) * k) / near;
+        const py = y + ((ty - y) * k) / near;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const j = Math.floor(py + oy) * W + Math.floor(px + ox);
+            if (j >= 0 && j < W * H && elevation[j] < -0.05) elevation[j] = -0.05;
+          }
+        }
+      }
+      this.terrainChanged('edit');
+      return true;
+    }
+    return false;
+  }
+
+  // 流木による漂流：砂浜の個体がまれに、近くの仲間といっしょに沖へ流される。
+  // 流れた先で別の陸地に着けば上陸、同じ陸地の岸に戻ることもあり、どこにも着かなければ海で死ぬ。
+  _raft() {
+    const island = this.island;
+    const p = RAFT_CHANCE_PER_YEAR / 12;
+    for (const c of this.creatures) {
+      if (!c.alive || island.terrainAt(c.x, c.y) !== TERRAIN.BEACH || this.rng.next() > p) continue;
+      const home = island.landmassAt(c.x, c.y);
+      const group = [c];
+      for (const o of this.creatures) {
+        if (group.length >= 4) break;
+        if (o === c || !o.alive || Math.abs(o.x - c.x) > 0.012 || Math.abs(o.y - c.y) > 0.016) continue;
+        if (island.landmassAt(o.x, o.y) === home && this.rng.next() < 0.8) group.push(o);
+      }
+      const a = this.rng.next() * Math.PI * 2;
+      const dx = Math.cos(a) / island.W;
+      const dy = Math.sin(a) / island.H;
+      let x = c.x;
+      let y = c.y;
+      let landed = null;
+      let atSea = false;
+      for (let k = 0; k < RAFT_RANGE; k++) {
+        x += dx;
+        y += dy;
+        if (x < 0 || y < 0 || x >= 1 || y >= 1) break;
+        if (!island.isLand(x, y)) {
+          atSea = true;
+          continue;
+        }
+        if (atSea) {
+          landed = { x, y, land: island.landmassAt(x, y) };
+          break;
+        }
+      }
+      if (!atSea) continue; // 陸のほうへ流れた：何も起きない
+      if (!landed) {
+        for (const g of group) this._kill(g, 'sea');
+        continue;
+      }
+      for (const g of group) {
+        g.x = g.px = landed.x + (this.rng.next() - 0.5) * 0.004;
+        g.y = g.py = landed.y + (this.rng.next() - 0.5) * 0.004;
+        if (!island.isLand(g.x, g.y) || island.landmassAt(g.x, g.y) !== landed.land) {
+          g.x = g.px = landed.x;
+          g.y = g.py = landed.y;
+        }
+      }
+      if (landed.land !== home) {
+        const to = island.landmassById(landed.land);
+        const from = island.landmassById(home);
+        const first = !this.creatures.some((o) => o.alive && !group.includes(o) && island.landmassAt(o.x, o.y) === landed.land);
+        const who = group.length === 1 ? `${c.clan}の${c.name}` : `${c.clan}の${c.name}ら ${group.length} 匹`;
+        this.addLog(`🪵 ${who}が流木に乗って${from?.name ?? '?'}から${to?.name ?? '?'}に流れ着いた${first ? '（無人の島に上陸）' : ''}。`, 'event', c.id);
+      }
+    }
+    this.creatures = this.creatures.filter((c) => c.alive);
+  }
+
   releasePredators(n = 4) {
     this.predators += n;
     this.addLog(`🦅 捕食者を ${n} 匹放った（いま約 ${Math.round(this.predators)} 匹）。`, 'event');
@@ -846,6 +1025,10 @@ export class World {
       climate: this.climateOffset,
       snow: this.snowSum != null ? this.snowSum / 12 : this.snowCover,
       sexsel: sexualSelectionStats(cs),
+      islands: (() => {
+        const st = islandStats(cs, this.island);
+        return { fst: st.fst, pops: Object.fromEntries(st.rows.filter((r) => r.pop > 0).map((r) => [r.name, r.pop])) };
+      })(),
       selection: this.history.length ? selectionStats(this.cohort, this.cohortTick, this.opts.maturityMonths) : null,
       ...this._founderRecord(cs),
       clans: new Set(cs.map((c) => this.establishedHaplo(c.mt).id)).size,
