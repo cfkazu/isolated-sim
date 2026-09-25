@@ -653,6 +653,16 @@ th.num {
   background: var(--series-1);
 }
 
+.bars .fill.alt {
+  background: var(--series-2);
+}
+
+td .bars .track {
+  height: 8px;
+  margin: 4px 0 2px;
+  min-width: 60px;
+}
+
 .freqbar {
   display: flex;
   height: 12px;

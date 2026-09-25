@@ -14,7 +14,15 @@ import {
   EAR_LABEL,
   tailLabel,
 } from '../genes.js';
-import { alleleFrequencies, genotypeTable } from '../stats.js';
+import {
+  alleleFrequencies,
+  genotypeTable,
+  SELECTION_TRAITS,
+  mergeSelection,
+  survivalRows,
+  selectionSummary,
+  SELECTION_T,
+} from '../stats.js';
 import { DEATH_CAUSES, DEFAULTS, tailDisplay, glowDisplay } from '../world.js';
 import { TERRAIN_LABEL } from '../island.js';
 import { createRng } from '../rng.js';
@@ -22,6 +30,9 @@ import { Chart, resolveColor } from './charts.js';
 import { drawPortrait, bodyColor } from './map.js';
 
 const pct = (v, d = 0) => `${(v * 100).toFixed(d)}%`;
+// 家系の記録が残っていればリンク、古すぎて消えていれば文字だけ
+const idLink = (world, id, text = `#${id}`) =>
+  world.pedigree.get(Number(id)) ? `<button type="button" class="link" data-select="${id}">${text}</button>` : text;
 const sexMark = (s) => (s === 'F' ? '♀' : '♂');
 const sexLabel = (s) => (s === 'F' ? 'メス' : 'オス');
 const ageLabel = (m) => `${Math.floor(m / 12)}歳${m % 12}か月`;
@@ -119,6 +130,15 @@ export function renderCreaturePanel(el, world, c, pinned) {
       <dt>体格 / 毛皮</dt><dd>${ph.size.toFixed(2)} / ${pct(ph.fur)}</dd>
       <dt>栄養状態</dt><dd>${pct(c.condition)}${c.alive && c.hunger > 0.2 ? ' <span class="badge warn">空腹</span>' : ''}</dd>
       <dt>免疫力</dt><dd>${pct(ph.resistance)}${ph.load ? ` <span class="badge warn">遺伝病 ×${ph.load}</span>` : ''}</dd>
+      ${
+        c.lineage
+          ? `<dt>創始者由来</dt><dd>${Object.entries(c.lineage)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([id, v]) => `${idLink(world, id)} ${pct(v, 1)}`)
+              .join('、')}${Object.keys(c.lineage).length > 3 ? ` ほか ${Object.keys(c.lineage).length - 3} 匹` : ''}</dd>`
+          : ''
+      }
       <dt>子の数</dt><dd>${children.length} 匹（生存 ${aliveChildren.length}）</dd>
       ${terrainInfo}
     </dl>
@@ -215,7 +235,8 @@ export class StatsPanel {
   constructor(el) {
     this.el = el;
     el.innerHTML = `<div id="stats-tiles" class="quick-stats"></div><div id="stats-charts"></div>
-      <h3>昨年の死因</h3><div id="stats-deaths" class="bars"></div>`;
+      <h3>昨年の死因</h3><div id="stats-deaths" class="bars"></div>
+      <h3>創始者の系統</h3><div id="founders-chart"></div><div id="founders" class="bars"></div>`;
     const host = el.querySelector('#stats-charts');
     this.pop = new Chart(host, {
       title: '個体数',
@@ -287,6 +308,11 @@ export class StatsPanel {
       format: (v, tip) => (tip ? v.toFixed(1) : String(Math.round(v))),
       series: [{ label: '捕食者', color: '--series-5' }],
     });
+    this.founders = new Chart(el.querySelector('#founders-chart'), {
+      title: '子孫が残っている創始者の数',
+      desc: '最初の百匹（と漂着者）のうち、今いる個体の家系をさかのぼると行き着く創始者の数。系統は途絶えると二度と戻らない。',
+      series: [{ label: '創始者の系統', color: '--series-3' }],
+    });
     this.births = new Chart(host, {
       title: '年間の出生',
       series: [
@@ -316,6 +342,17 @@ export class StatsPanel {
       H.map((h) => h.pheno.resistant / n(h)),
     ]);
     this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
+    this.founders.setData(xs, [H.map((h) => h.founderLines ?? 0)]);
+    const top = (world.founderSnapshot ?? []).slice(0, 8);
+    const topMax = Math.max(0.01, ...top.map((f) => f.share));
+    this.el.querySelector('#founders').innerHTML = top.length
+      ? `<p class="small muted">今の島の遺伝子のうち、各創始者に由来する割合（家系からの期待値）。上位 8 匹。</p>${top
+          .map(
+            (f) =>
+              `<div class="bar-row"><span>${idLink(world, f.id, `創始者 #${f.id}`)}</span><div class="track"><div class="fill" style="width:${(f.share / topMax) * 100}%"></div></div><span class="num">${pct(f.share, 1)}</span></div>`,
+          )
+          .join('')}`
+      : '';
     const ss = (h, k) => h.sexsel?.[k] ?? 0;
     const glowFreq = (h) => h.freqs.GLW.g;
     this.sexsel.setData(xs, [H.map((h) => ss(h, 'tail')), H.map((h) => ss(h, 'prefTail')), H.map(glowFreq), H.map((h) => ss(h, 'prefGlow'))]);
@@ -352,7 +389,7 @@ export class StatsPanel {
   }
 
   redraw() {
-    for (const c of [this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.births]) c.draw();
+    for (const c of [this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.founders, this.births]) c.draw();
   }
 }
 
@@ -509,4 +546,103 @@ export function renderSettings(el, opts, onChange, onRestart) {
     if (a === 'restart') onRestart(false);
     if (a === 'random-seed') onRestart(true);
   });
+}
+
+// ───────────────────────── 自然選択（実測） ─────────────────────────
+
+const PERIODS = { 1: '昨年', 10: '直近10年', 0: '全期間' };
+
+export class SelectionPanel {
+  constructor(el) {
+    this.el = el;
+    this.trait = 'color';
+    this.period = 10;
+    el.innerHTML = `
+      <p class="small">年のはじめに生きていた個体を形質で分け、<strong>1 年後に生き残った割合</strong>と<strong>成体 1 匹が残した子の数</strong>を、実際の結果から数えています。
+      設定した係数ではなく、起きたことそのものです。</p>
+      <div class="btn-row">
+        <label>形質 <select id="sel-trait">${Object.entries(SELECTION_TRAITS)
+          .map(([k, t]) => `<option value="${k}">${t.label}</option>`)
+          .join('')}</select></label>
+        <label>期間 <select id="sel-period">${Object.entries(PERIODS)
+          .map(([k, v]) => `<option value="${k}" ${Number(k) === this.period ? 'selected' : ''}>${v}</option>`)
+          .join('')}</select></label>
+      </div>
+      <div id="sel-table"></div>
+      <p class="muted small">± は、1 匹ずつの運命が独立だと仮定したときに偶然でも生じうる幅（95%）。
+      実際には家族は同じ場所に住み、同じ運命をたどりやすいので、偶然の幅はこれより広い。
+      下の一覧では、差が<strong>毎年くり返し同じ向きに出ているか</strong>で判定しています（期間は 3 年以上必要）。
+      <strong>耳の形</strong>は生死にも好みにも関わらない中立な形質なので、判定が正しく働いているかを確かめる「対照群」です（中立でも 10 年窓の 3% ほどは誤って「差がある」と出ます）。</p>
+      <p class="muted small">体色に差が出にくいのは、捕食者が多数派の色を狙う（探索像）せいで、各色の割合が「生存率がつり合う点」に落ち着くから。つり合いが崩れるのは、雪や草の食べ尽くしで地面の色が変わったとき。</p>
+      <h3>いま効いている選択（強い順）</h3>
+      <div id="sel-summary"></div>`;
+    el.querySelector('#sel-trait').addEventListener('change', (e) => {
+      this.trait = e.target.value;
+      this.update(this.world);
+    });
+    el.querySelector('#sel-period').addEventListener('change', (e) => {
+      this.period = Number(e.target.value);
+      this.update(this.world);
+    });
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-trait]');
+      if (!b) return;
+      this.trait = b.dataset.trait;
+      el.querySelector('#sel-trait').value = this.trait;
+      this.update(this.world);
+    });
+  }
+
+  _records(world) {
+    const recs = world.history.map((h) => h.selection).filter(Boolean);
+    return this.period ? recs.slice(-this.period) : recs;
+  }
+
+  update(world) {
+    this.world = world;
+    const recs = this._records(world);
+    const tableEl = this.el.querySelector('#sel-table');
+    if (recs.length === 0) {
+      tableEl.innerHTML = '<p class="muted small">1 年経つと表示されます。</p>';
+      this.el.querySelector('#sel-summary').innerHTML = '';
+      return;
+    }
+    const t = SELECTION_TRAITS[this.trait];
+    const rows = survivalRows(mergeSelection(recs, this.trait), t.classes);
+    const maxOff = Math.max(0.01, ...rows.map((r) => r.off));
+    tableEl.innerHTML = `<table>
+      <thead><tr><th>区分</th><th class="num">のべ個体数</th><th>1 年後の生存率</th><th>成体 1 匹あたりの子</th><th>主な死因</th></tr></thead>
+      <tbody>${rows
+        .map((r) => {
+          const causes = Object.entries(r.deaths)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 2)
+            .map(([c, v]) => `${DEATH_CAUSES[c] ?? c} ${pct(v / Math.max(1, r.n))}`)
+            .join('、');
+          return `<tr>
+            <td>${t.names[r.k]}</td>
+            <td class="num">${r.n}</td>
+            <td>${r.n ? `<div class="bars"><div class="track"><div class="fill" style="width:${r.p * 100}%"></div></div></div>${pct(r.p)} <span class="muted small">±${pct(r.pErr)}</span>` : '<span class="muted">—</span>'}</td>
+            <td>${r.adults ? `<div class="bars"><div class="track"><div class="fill alt" style="width:${(r.off / maxOff) * 100}%"></div></div></div>${r.off.toFixed(2)} <span class="muted small">±${r.offErr.toFixed(2)}</span>` : '<span class="muted">—</span>'}</td>
+            <td class="small">${causes || '<span class="muted">—</span>'}</td>
+          </tr>`;
+        })
+        .join('')}</tbody></table>`;
+
+    const summary = selectionSummary(recs);
+    const badge = (s) => {
+      if (s.key === 'ear') return '<span class="badge">対照（中立）</span>';
+      if (s.t === null) return '<span class="badge">期間を長くして判定</span>';
+      return s.t > SELECTION_T ? '<span class="badge gene">毎年安定して差がある</span>' : '<span class="badge">偶然の範囲</span>';
+    };
+    this.el.querySelector('#sel-summary').innerHTML = summary.length
+      ? `<table><tbody>${summary
+          .map(
+            (s) => `<tr><td><button type="button" class="link" data-trait="${s.key}">${s.tr.label}</button></td>
+            <td class="small">${s.tr.names[s.best.k]} ${pct(s.best.p)} ＞ ${s.tr.names[s.worst.k]} ${pct(s.worst.p)}</td>
+            <td>${badge(s)}</td></tr>`,
+          )
+          .join('')}</tbody></table>`
+      : '<p class="muted small">個体数が少なく、まだ比べられません。</p>';
+  }
 }

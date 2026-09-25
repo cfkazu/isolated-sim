@@ -64,3 +64,55 @@ test('World: 近親交配を避けると近親間の出産が減る', () => {
   };
   assert.ok(run(true) < run(false));
 });
+
+test('World: 自然選択の実測は年はじめの全個体を数え、生存数が合う', () => {
+  const w = new World({ seed: 'selection' });
+  for (let i = 0; i < 12 * 5; i++) w.step();
+  const cohort = w.history.at(-2).pop; // 前の年末（= この年のはじめ）の個体数
+  const rows = w.history.at(-1).selection.color;
+  const n = Object.values(rows).reduce((a, r) => a + r.n, 0);
+  const survived = Object.values(rows).reduce((a, r) => a + r.survived, 0);
+  const deaths = Object.values(rows).reduce((a, r) => a + Object.values(r.deaths).reduce((x, y) => x + y, 0), 0);
+  assert.equal(n, cohort);
+  assert.equal(survived + deaths, n);
+});
+
+test('World: 創始者由来の割合は各個体で合計 1', () => {
+  const w = new World({ seed: 'lineage' });
+  for (let i = 0; i < 12 * 30; i++) w.step();
+  for (const c of w.creatures) {
+    const total = Object.values(c.lineage).reduce((a, b) => a + b, 0);
+    assert.ok(Math.abs(total - 1) < 1e-9, `#${c.id}: ${total}`);
+  }
+  const shares = w.founderSnapshot.reduce((a, s) => a + s.share, 0);
+  assert.ok(Math.abs(shares - 1) < 1e-9);
+});
+
+test('自然選択の判定: 遺伝病（d/d）は差が出て、中立な耳の形はほとんど出ない', async () => {
+  const { selectionSummary, SELECTION_T } = await import('../src/stats.js');
+  let earHits = 0;
+  let loadHits = 0;
+  let earN = 0;
+  let loadN = 0;
+  for (let s = 0; s < 3; s++) {
+    const w = new World({ seed: `calib${s}`, randomEvents: false });
+    for (let y = 0; y < 100; y++) {
+      for (let m = 0; m < 12; m++) w.step();
+      if (y % 10 !== 9) continue;
+      const recs = w.history.map((h) => h.selection).filter(Boolean).slice(-10);
+      for (const r of selectionSummary(recs)) {
+        if (r.t === null) continue;
+        if (r.key === 'ear') {
+          earN++;
+          if (r.t > SELECTION_T) earHits++;
+        }
+        if (r.key === 'load') {
+          loadN++;
+          if (r.t > SELECTION_T) loadHits++;
+        }
+      }
+    }
+  }
+  assert.ok(earHits / earN < 0.15, `ear ${earHits}/${earN}`);
+  assert.ok(loadN === 0 || loadHits / loadN > earHits / earN, `load ${loadHits}/${loadN}`);
+});

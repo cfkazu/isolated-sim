@@ -4,7 +4,14 @@ import { createRng } from './rng.js';
 import { LOCI, randomGenome, makeGamete, fertilize, express } from './genes.js';
 import { generateIsland, TERRAIN } from './island.js';
 import { Pedigree } from './pedigree.js';
-import { alleleFrequencies, heterozygosity, phenotypeSummary, sexualSelectionStats } from './stats.js';
+import {
+  alleleFrequencies,
+  heterozygosity,
+  phenotypeSummary,
+  sexualSelectionStats,
+  selectionStats,
+  founderShares,
+} from './stats.js';
 import { Vegetation, BODY_RGB, contrast, groundAt, predationHazards, PREDATOR } from './ecology.js';
 
 export const DEFAULTS = {
@@ -87,7 +94,9 @@ export class World {
     }
     this._updateEnvironment();
     this.alleleStatus = {};
+    this.cohort = [];
     this._recordYear();
+    this._startCohort();
     this.addLog(`🏝️ ${n} 匹の生物が島に閉じ込められた。`);
   }
 
@@ -141,6 +150,8 @@ export class World {
       alive: true,
       lastBredYear: -1,
       offspring: 0,
+      yearOffspring: 0,
+      lineage: founder ? { [this.nextId - 1]: 1 } : this._inheritLineage(fatherId, motherId),
       hunger: 0,
       condition: 1, // 栄養状態（最近の満腹度の移動平均）
       deathTick: null,
@@ -151,8 +162,26 @@ export class World {
     return c;
   }
 
+  // 子の創始者由来の割合 = 父と母の割合の平均（期待値）
+  _inheritLineage(fatherId, motherId) {
+    const out = {};
+    for (const id of [fatherId, motherId]) {
+      const p = this.pedigree.get(id);
+      if (!p?.lineage) continue;
+      for (const [k, v] of Object.entries(p.lineage)) out[k] = (out[k] || 0) + v / 2;
+    }
+    return out;
+  }
+
+  _startCohort() {
+    this.cohort = this.creatures.slice();
+    this.cohortTick = this.tick;
+    for (const c of this.cohort) c.yearOffspring = 0;
+  }
+
   _kill(c, cause) {
     c.alive = false;
+    c.lineage = null; // 死んだ個体はもう子を残さないので系統の記録は不要
     c.deathTick = this.tick;
     c.cause = cause;
     this.counters.deaths[cause]++;
@@ -413,6 +442,8 @@ export class World {
       }
       f.offspring += born;
       mate.offspring += born;
+      f.yearOffspring += born;
+      mate.yearOffspring += born;
       this.counters.births += born;
       if (F >= 0.125) this.counters.inbredBirths += born;
     }
@@ -447,6 +478,7 @@ export class World {
 
   _endYear() {
     this._recordYear();
+    this._startCohort();
     this._milestones();
     this._resetCounters();
     if (this.opts.randomEvents) this._randomEvents();
@@ -585,6 +617,8 @@ export class World {
       pheno,
       climate: this.climateOffset,
       sexsel: sexualSelectionStats(cs),
+      selection: this.history.length ? selectionStats(this.cohort, this.cohortTick, this.opts.maturityMonths) : null,
+      ...this._founderRecord(cs),
       predators: this.predators,
       kills: this.counters.deaths.predation,
       vegetation: this.vegetation.meanFraction(),
@@ -594,6 +628,20 @@ export class World {
     if (this.history.length === 1) {
       for (const l of LOCI) for (const a of l.alleles) this.alleleStatus[`${l.key}:${a}`] = rec.freqs[l.key][a] > 0 ? 'present' : 'lost';
     } else if (cs.length > 0) this._detectFixation(rec.freqs);
+  }
+
+  _founderRecord(cs) {
+    const shares = founderShares(cs);
+    this.founderSnapshot = shares;
+    const lines = shares.filter((s) => s.share > 0).length;
+    const prev = this.history.at(-1)?.founderLines;
+    for (const k of [50, 20, 10, 5, 1]) {
+      if (prev > k && lines <= k && cs.length > 0) {
+        this.addLog(`🌳 子孫が残っている創始者が ${lines} 匹になった。`, 'gene');
+        break;
+      }
+    }
+    return { founderLines: lines, topFounderShare: shares[0]?.share ?? 0 };
   }
 
   // 対立遺伝子の消失・固定・復活をログに残す。突然変異で一瞬だけ現れたものは数えず、5% を超えたら「復活」とする。

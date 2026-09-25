@@ -1,6 +1,6 @@
 import { World, MONTH_LABEL, DEFAULTS } from './world.js';
 import { MapView, DISPLAY_LEGENDS } from './ui/map.js';
-import { renderCreaturePanel, StatsPanel, GenesPanel, renderGuide, renderSettings } from './ui/panels.js';
+import { renderCreaturePanel, StatsPanel, GenesPanel, SelectionPanel, renderGuide, renderSettings } from './ui/panels.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -21,6 +21,7 @@ const state = {
 const mapView = new MapView($('#map'));
 const statsPanel = new StatsPanel($('#tab-stats'));
 const genesPanel = new GenesPanel($('#tab-genes'));
+const selectionPanel = new SelectionPanel($('#tab-selection'));
 renderGuide($('#tab-guide'));
 renderSettings(
   $('#tab-settings'),
@@ -153,6 +154,8 @@ function renderSidePanel(force = false) {
     statsPanel.update(w);
   } else if (state.tab === 'genes' && (force || w.year !== state.lastYear)) {
     genesPanel.update(w);
+  } else if (state.tab === 'selection' && (force || w.year !== state.lastYear)) {
+    selectionPanel.update(w);
   }
 }
 
