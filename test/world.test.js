@@ -220,3 +220,33 @@ test('島の形: 離島のある島は小島が無人で始まり、群島は複
   assert.ok(arch.island.landmasses.filter((m) => m.size >= 150).length >= 3, '島が 3 つ以上');
   assert.ok(peopled.size >= 3, '3 つ以上の島に個体がいる');
 });
+
+test('保存と復元: 復元した島は、保存しなかった島とまったく同じ歴史をたどる', async () => {
+  const { snapshot, restore } = await import('../src/save.js');
+  const a = new World({ seed: 'save', islandShape: 'islets' });
+  a.createIslet();
+  a.sculpt(0.2, 0.2, 5, 0.1);
+  a.terrainChanged('edit');
+  for (let i = 0; i < 12 * 30 + 5; i++) a.step();
+  // IndexedDB と同じ構造化複製を通す
+  const b = restore(structuredClone(snapshot(a)));
+  assert.equal(b.creatures.length, a.creatures.length);
+  assert.equal(b.creatures[0].clan, a.creatures[0].clan);
+  assert.deepEqual(
+    b.island.landmasses.map((m) => m.name),
+    a.island.landmasses.map((m) => m.name),
+  );
+  for (let i = 0; i < 12 * 5; i++) {
+    a.step();
+    b.step();
+  }
+  assert.deepEqual(
+    b.history.map((h) => [h.pop, h.births, h.predators]),
+    a.history.map((h) => [h.pop, h.births, h.predators]),
+  );
+  assert.deepEqual(
+    b.creatures.map((c) => [c.id, c.x, c.clan]),
+    a.creatures.map((c) => [c.id, c.x, c.clan]),
+  );
+  assert.equal(b.log.length, a.log.length);
+});

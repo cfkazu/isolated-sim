@@ -1,6 +1,7 @@
 import { World, MONTH_LABEL, DEFAULTS } from './world.js';
 import { MapView, DISPLAY_LEGENDS } from './ui/map.js';
 import { FamilyTree } from './ui/familyTree.js';
+import { restore, saveToBrowser, loadFromBrowser } from './save.js';
 import { renderCreaturePanel, StatsPanel, GenesPanel, SelectionPanel, renderGuide, renderSettings } from './ui/panels.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -27,7 +28,7 @@ const familyTree = new FamilyTree($('#tab-family'), (id) => {
   state.selectedId = id;
 });
 renderGuide($('#tab-guide'));
-renderSettings(
+const settingsArgs = [
   $('#tab-settings'),
   state.opts,
   (name, value) => {
@@ -44,10 +45,17 @@ renderSettings(
     }
     newWorld();
   },
-);
+];
+renderSettings(...settingsArgs);
 
 function newWorld() {
-  state.world = new World(state.opts);
+  save.tick = -1;
+  showWorld(new World(state.opts));
+}
+
+function showWorld(world) {
+  state.world = world;
+  hideResume();
   state.selectedId = null;
   state.pinnedId = null;
   state.lastYear = -1;
@@ -212,6 +220,76 @@ function frame(now) {
   draw();
   requestAnimationFrame(frame);
 }
+
+// ───── 保存と読み込み ─────
+// 島はブラウザ（IndexedDB）に 1 つだけ保存する。2 分ごと・タブを離れたとき・保存ボタンで上書き。
+// 起動時に保存があれば「続きから」を選べる。答えるまでは自動保存しない（前の島を消さないため）。
+
+const AUTOSAVE_MS = 120000;
+const save = { tick: -1, busy: false, pending: null, timer: 0 };
+
+function setSaveStatus(text) {
+  $('#save-status').textContent = text;
+}
+
+async function saveNow(manual = false) {
+  const w = state.world;
+  if (save.pending || save.busy || w.extinct) return;
+  if (!manual && w.tick === save.tick) return;
+  save.busy = true;
+  const ok = await saveToBrowser(w);
+  save.busy = false;
+  if (ok) {
+    save.tick = w.tick;
+    setSaveStatus(`${w.year}年目を保存済み`);
+  } else if (manual) {
+    setSaveStatus('このブラウザでは保存できません');
+  }
+}
+
+function hideResume() {
+  save.pending = null;
+  $('#resume-bar').hidden = true;
+}
+
+async function offerResume() {
+  const snap = await loadFromBrowser();
+  if (!snap?.summary) return;
+  const s = snap.summary;
+  const when = new Date(snap.savedAt).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  save.pending = snap;
+  const bar = $('#resume-bar');
+  bar.innerHTML = `<span>前回の島が保存されています：<strong>${s.year}年目・${s.pop}匹</strong>（${s.geology}、シード ${s.seed}、${when}）</span>
+    <span class="btn-row"><button type="button" class="primary" data-resume="load">続きから</button>
+    <button type="button" data-resume="new">新しい島のまま（保存は次の自動保存で上書き）</button></span>`;
+  bar.hidden = false;
+}
+
+$('#resume-bar').addEventListener('click', (e) => {
+  const a = e.target.closest('[data-resume]')?.dataset.resume;
+  if (!a) return;
+  if (a === 'load') {
+    try {
+      const w = restore(save.pending);
+      Object.assign(state.opts, w.opts);
+      renderSettings(...settingsArgs);
+      save.tick = w.tick;
+      showWorld(w);
+      setSaveStatus(`${w.year}年目から再開`);
+    } catch {
+      hideResume();
+      setSaveStatus('保存データを読み込めませんでした');
+    }
+  } else {
+    hideResume();
+  }
+});
+
+$('#btn-save').addEventListener('click', () => saveNow(true));
+setInterval(() => saveNow(), AUTOSAVE_MS);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveNow();
+});
 
 // ───── イベント ─────
 
@@ -384,4 +462,5 @@ document.addEventListener('keydown', (e) => {
 
 renderLegend();
 newWorld();
+offerResume();
 requestAnimationFrame(frame);

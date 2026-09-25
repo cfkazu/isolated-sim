@@ -718,6 +718,9 @@ export function renderSettings(el, opts, onChange, onRestart) {
     <p class="hint">地球の氷期と間氷期のように、ゆっくり冷えて急に暖まる。寒い側に大きく、暖かい側に小さく振れる。寒い時代は海面が下がって浅瀬が陸橋になり、暖かい時代は海面が上がる。</p>
     <p class="hint">寿命は 15 歳で固定です。</p>
   </div>`;
+  // 保存した島を読み込んだときに描き直すので、イベントは最初の 1 回だけ登録する
+  if (el.dataset.bound) return;
+  el.dataset.bound = '1';
   el.addEventListener('input', (e) => {
     const t = e.target;
     if (!t.name) return;

@@ -23,6 +23,11 @@ export function createRng(seed) {
 
   return {
     next,
+    // 保存と復元のため
+    getState: () => s,
+    setState: (v) => {
+      s = v >>> 0;
+    },
     int: (n) => Math.floor(next() * n),
     chance: (p) => next() < p,
     pick: (arr) => arr[Math.floor(next() * arr.length)],

@@ -21,6 +21,8 @@
       <div class="controls">
         <button id="btn-play" class="primary" type="button">▶ 再生</button>
         <button id="btn-step" type="button" title="1年進める">+1年</button>
+        <button id="btn-save" type="button" title="この島をブラウザに保存する（2分ごとと、タブを閉じたときにも自動で保存）">💾 保存</button>
+        <span id="save-status" class="save-status muted small" aria-live="polite"></span>
         <label class="speed">
           速度
           <select id="speed">
@@ -50,6 +52,7 @@
           <div id="map-legend" class="map-legend"></div>
           <button type="button" id="btn-edit" aria-pressed="false">✏️ 地形を編集</button>
         </div>
+        <div id="resume-bar" class="resume-bar" hidden></div>
         <div id="edit-bar" class="edit-bar" hidden>
           <div class="seg" role="group" aria-label="筆の種類">
             <button type="button" data-brush="raise" aria-pressed="true">⛰️ 盛る（陸にする）</button>
