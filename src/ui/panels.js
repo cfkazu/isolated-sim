@@ -27,7 +27,7 @@ import {
   mendelianSummary,
   SELECTION_T,
 } from '../stats.js';
-import { DEATH_CAUSES, DEFAULTS, tailDisplay, glowDisplay } from '../world.js';
+import { DEATH_CAUSES, DEFAULTS, CLIMATE_AMPLITUDE, tailDisplay, glowDisplay } from '../world.js';
 import { TERRAIN_LABEL } from '../island.js';
 import { createRng } from '../rng.js';
 import { Chart, resolveColor } from './charts.js';
@@ -312,6 +312,14 @@ export class StatsPanel {
       <div id="clan-tree" class="bars clan-tree"></div>
       <h3>創始者の系統</h3><div id="founders-chart"></div><div id="founders" class="bars"></div>`;
     const host = el.querySelector('#stats-charts');
+    this.climate = new Chart(host, {
+      title: '気温（今との差）',
+      desc: '氷期と間氷期の大きな波に、数十年〜百年の揺らぎと出来事が重なる。寒いほど海面が下がり、浅瀬が陸になる。',
+      yMin: -15,
+      yMax: 5,
+      format: (v, tip) => `${v > 0 ? '+' : ''}${tip ? v.toFixed(1) : Math.round(v)}℃`,
+      series: [{ label: '気温', color: '--series-1' }],
+    });
     this.pop = new Chart(host, {
       title: '個体数',
       series: [
@@ -403,6 +411,7 @@ export class StatsPanel {
     const last = H.at(-1);
     const xs = H.map((h) => h.year);
     this.pop.setData(xs, [H.map((h) => h.pop), H.map((h) => h.females), H.map((h) => h.males)]);
+    this.climate.setData(xs, [H.map((h) => h.climate ?? 0)]);
     this.div.setData(xs, [H.map((h) => h.He), H.map((h) => h.Ho), H.map((h) => h.meanF)]);
     const n = (h) => Math.max(1, h.pop);
     this.color.setData(xs, [
@@ -488,7 +497,7 @@ export class StatsPanel {
   }
 
   redraw() {
-    for (const c of [this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.founders, this.births]) c.draw();
+    for (const c of [this.climate, this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.founders, this.births]) c.draw();
   }
 }
 
@@ -635,7 +644,7 @@ export function renderGuide(el) {
     <h3>生死を分けるもの（自然選択）</h3>
     <ul class="small">
       <li><strong>捕食</strong>：島には捕食者がいる（数だけで表現）。体色と足元の地面の色の差が大きいほど見つかりやすい。地図に見えている地面の色がそのまま使われる。発光すると目立つ。捕食者は<strong>よく見かける色を重点的に探す</strong>（探索像）ので、多数派の色ほど狙われやすい。捕食者の数は獲物の量に応じて増減する。</li>
-      <li><strong>気候</strong>：毛皮が厚く体が大きいほど寒さに強く、暑さに弱い。</li>
+      <li><strong>気候</strong>：毛皮が厚く体が大きく代謝が速いほど寒さに強く、暑さに弱い。山の上は寒く海辺は暖かい。気候は地球の氷期と間氷期のように、約 600 年の周期でゆっくり冷えて急に暖まる。</li>
       <li><strong>飢え</strong>：草はマスごとに育ち、食べられて減る。同じマスの個体で頭数割りに分け合うので、たくさん食べる大きな個体ほど足りなくなりやすい。草は寒いと育たず、干ばつの年はほとんど育たない。食べ尽くされた地面は土の色になる（そこでは黒が目立たない）。</li>
       <li><strong>海</strong>：生き物は泳げない。砂浜にいる個体がまれに流木に乗って沖へ流され、たどり着いた島に上陸する（多くは海で死ぬ）。寒冷期には海面が下がり、浅瀬が陸橋になって島どうしが陸続きになる。「✏️ 地形を編集」で陸を盛ったり海を掘ったり、沖に小島をつくったりできる。</li>
       <li><strong>病気</strong>：免疫型 A/B のヘテロが強い。疫病の年は差が大きく出る。</li>
@@ -685,13 +694,20 @@ export function renderSettings(el, opts, onChange, onRestart) {
     <label class="field">捕食者の探索像の強さ k<input type="number" name="searchImage" step="0.1" min="1" max="4" value="${o.searchImage}"></label>
     <p class="hint">k = 1 なら捕食者は目立つ獲物を狙うだけ。k が大きいほど「よく見かける色」を重点的に探すので、少数派の色が有利になる。</p>
     <label class="check"><input type="checkbox" name="inbreedingAvoidance" ${o.inbreedingAvoidance ? 'checked' : ''}> 近親交配を避ける（半きょうだい以上の近親とは交配しない）</label>
-    <label class="check"><input type="checkbox" name="randomEvents" ${o.randomEvents ? 'checked' : ''}> ランダムな出来事（疫病・不作・寒冷期・大嵐）</label>
+    <label class="check"><input type="checkbox" name="randomEvents" ${o.randomEvents ? 'checked' : ''}> ランダムな出来事（疫病・干ばつ・大嵐・超寒冷期）</label>
+    <label class="field">気候の周期（氷期から次の氷期まで）<select name="climateCycleYears" data-num="1">${[300, 600, 1000]
+      .map((y) => `<option value="${y}" ${o.climateCycleYears === y ? 'selected' : ''}>${y} 年</option>`)
+      .join('')}</select></label>
+    <label class="field">気候の振れ幅<select name="climateAmplitude">${Object.entries(CLIMATE_AMPLITUDE)
+      .map(([k, a]) => `<option value="${k}" ${o.climateAmplitude === k ? 'selected' : ''}>${a.label}（${a.cold}℃〜+${a.warm}℃）</option>`)
+      .join('')}</select></label>
+    <p class="hint">地球の氷期と間氷期のように、ゆっくり冷えて急に暖まる。寒い側に大きく、暖かい側に小さく振れる。寒い時代は海面が下がって浅瀬が陸橋になり、暖かい時代は海面が上がる。</p>
     <p class="hint">寿命は 15 歳で固定です。</p>
   </div>`;
   el.addEventListener('input', (e) => {
     const t = e.target;
     if (!t.name) return;
-    const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? Number(t.value) : t.value;
+    const v = t.type === 'checkbox' ? t.checked : t.type === 'number' || t.dataset.num ? Number(t.value) : t.value;
     if (t.type === 'number' && !Number.isFinite(v)) return;
     onChange(t.name, v);
   });

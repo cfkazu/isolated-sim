@@ -8,7 +8,8 @@
 import { TERRAIN } from './island.js';
 
 export const FOOD_CELL = 4;
-const ROOT = 0.1; // 島のマス 4×4 を 1 つの草のマスにまとめる
+const ROOT = 0.1;
+const REGROW = 0.3; // 食べ尽くされた草が伸び直す勢い（上限のこの割合ぶん草があるのと同じ速さで育つ） // 島のマス 4×4 を 1 つの草のマスにまとめる
 
 // 地面の色（RGB）。地図の描画にもこの色を使うので、画面で見える色 = 捕食者が見る色。
 export const GROUND_RGB = {
@@ -146,7 +147,8 @@ export class Vegetation {
       const r = 0.45 * Math.max(0, Math.min(1, localTemp(this.elev[i]) / 16)) * dk;
       if (r === 0) continue;
       const v = this.veg[i];
-      this.veg[i] = Math.min(K, v + r * v * (1 - v / K));
+      // 食べ尽くされても根や地下茎から伸び直すので、成長の勢いは「根の分」を下回らない
+      this.veg[i] = Math.min(K, v + r * Math.max(v, REGROW * K) * (1 - v / K));
     }
   }
 

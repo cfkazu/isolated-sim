@@ -27,6 +27,8 @@ export const DEFAULTS = {
   searchImage: 2, // 探索像の強さ k（1 なら色の多さに関係なく見つけやすさだけで狙う）
   inbreedingAvoidance: false,
   randomEvents: true,
+  climateCycleYears: 600, // 氷期から次の氷期までの年数
+  climateAmplitude: 'realistic', // 気候の振れ幅：'realistic'（現実寄り）か 'dramatic'（ドラマ寄り）
   pedigreeYears: 40,
 };
 
@@ -49,6 +51,17 @@ const MT_MUTATION_RATE = 1 / 40;
 // 分家の芽が、生きている個体がこの数に育ったら家として名前を付ける
 const BRANCH_NAMED_AT = 10;
 
+// 気候の大きな波（氷期と間氷期）の振れ幅（今の気温との差、℃）。
+// 地球と同じく寒い側に大きく、暖かい側に小さく振れる（最終氷期は今より 4〜7℃ 低く、前の間氷期は 1〜2℃ 高かった）
+export const CLIMATE_AMPLITUDE = {
+  realistic: { cold: -6, warm: 1.5, label: '現実寄り' },
+  dramatic: { cold: -8, warm: 3, label: 'ドラマ寄り' },
+};
+// 1 周期のうち、ゆっくり冷えていく割合（残りで急に暖まる。のこぎり形）
+const COOLING_SHARE = 0.8;
+// これより寒い気温には、どの出来事が重なってもならない
+const COLDEST = -16;
+
 // 超寒冷期の気温の下がり幅（℃）。冬は島じゅうが、夏でも山の上は雪に閉ざされる（これ以上寒いとほぼ確実に絶滅する）
 const SUPER_COLD_OFFSET = -14;
 
@@ -60,7 +73,7 @@ const RAFT_CHANCE_PER_YEAR = 0.05;
 const RAFT_RANGE = 70;
 
 // 1 か月に必要な草の量（体格 1 あたり。幼体は半分）
-const FOOD_NEED = 0.08;
+const FOOD_NEED = 0.11;
 // 性選択：好みが最大（1）のメスにとって、飾りが最大のオスは飾りのないオスの何倍魅力的か、から 1 を引いた値
 const PREFERENCE_SCALE = 6;
 // 好みが最大のメスが相手探しに費やす時間のせいで、その月に繁殖できる確率が何割減るか
@@ -82,6 +95,15 @@ export class World {
     this.haplos = new Map();
     this.nextHaplo = 1;
     this.clanPeak = new Map(); // 系統 id → { peak, year, gone }
+    // 気候 = 大きな波（氷期と間氷期）＋ 数十〜百年の揺らぎ ＋ 出来事（寒冷期・温暖期・超寒冷期）による押し。
+    // 島は波の前半（間氷期〜寒冷化）のどこかから始まる
+    this.cycleStart = Math.floor(this.rng.next() * 0.5 * this.opts.climateCycleYears);
+    this.climateWobble = 0;
+    this.push = { kind: null, offset: 0, target: 0, years: 0, rate: 1.5 };
+    this.climateOffset = this.cycleTemp(0);
+    this.climatePhase = this.phaseOf(0);
+    this.island.seaLevel = SEA_PER_DEGREE * this.climateOffset;
+    this.island.reclassify();
     this.vegetation = new Vegetation(this.island, this.opts.fertility);
     this.predators = this.opts.initialPredators;
     this.hunger = 0;
@@ -90,9 +112,6 @@ export class World {
     this.creatures = [];
     this.history = [];
     this.log = [];
-    this.climateOffset = 0;
-    this.climateTarget = 0;
-    this.coldEraYears = 0;
     this.epidemicMonths = 0;
     this.famineMonths = 0;
     this.yearNoise = 0;
@@ -121,7 +140,7 @@ export class World {
     this.cohort = [];
     this._recordYear();
     this._startCohort();
-    this.addLog(`🏝️ ${n} 匹の生物が島に閉じ込められた。`);
+    this.addLog(`🏝️ ${n} 匹の生物が島に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
   }
 
   get year() {
@@ -589,19 +608,9 @@ export class World {
     this._resetCounters();
     if (this.opts.randomEvents) this._randomEvents();
 
-    // 気候：寒冷期に向けてゆっくり変化
-    if (this.coldEraYears > 0) {
-      this.coldEraYears--;
-      if (this.coldEraYears === 0) {
-        this.climateTarget = 0;
-        this.addLog(this.superCold ? '☀️ 超寒冷期が終わり、雪がゆっくり退きはじめた。' : '☀️ 寒冷期が終わり、気候が戻りはじめた。', 'event');
-        this.superCold = false;
-      }
-    }
-    const d = this.climateTarget - this.climateOffset;
-    this.climateOffset += Math.sign(d) * Math.min(Math.abs(d), this.climateRate ?? 1.5);
-    // 寒くなると海面が下がり、浅瀬が陸になる（陸橋・小島の出現）
-    const sea = SEA_PER_DEGREE * Math.min(0, this.climateOffset);
+    this._updateClimate();
+    // 寒くなると海面が下がり、浅瀬が陸になる（陸橋・小島の出現）。暖かくなると海面が上がり、低い海辺が沈む
+    const sea = SEA_PER_DEGREE * this.climateOffset;
     if (Math.abs(sea - this.island.seaLevel) > 0.004) {
       const falling = sea < this.island.seaLevel;
       this.island.seaLevel = sea;
@@ -610,6 +619,66 @@ export class World {
     this.yearNoise = this.rng.normal() * 1.2;
 
     this.pedigree.prune(this.tick - this.opts.pedigreeYears * 12);
+  }
+
+  // 大きな波（氷期と間氷期）の気温：周期の 8 割をかけてゆっくり冷え、残り 2 割で急に暖まる（のこぎり形）
+  cycleTemp(year) {
+    const P = this.opts.climateCycleYears;
+    const { cold, warm } = CLIMATE_AMPLITUDE[this.opts.climateAmplitude] ?? CLIMATE_AMPLITUDE.realistic;
+    const ph = (((year + this.cycleStart) % P) + P) % P / P;
+    if (ph < COOLING_SHARE) return warm + (cold - warm) * Math.pow(ph / COOLING_SHARE, 1.3);
+    return cold + (warm - cold) * ((ph - COOLING_SHARE) / (1 - COOLING_SHARE));
+  }
+
+  cyclePhase(year) {
+    const P = this.opts.climateCycleYears;
+    return (((year + this.cycleStart) % P) + P) % P / P;
+  }
+
+  _updateClimate() {
+    const year = this.year;
+    const base = this.cycleTemp(year);
+    // 数十〜百年単位の揺らぎ（小氷期や中世温暖期のようなもの）
+    this.climateWobble = 0.97 * this.climateWobble + 0.35 * this.rng.normal();
+    const p = this.push;
+    if (p.kind) {
+      if (p.kind === 'super') p.target = SUPER_COLD_OFFSET - (base + this.climateWobble);
+      p.years--;
+      if (p.years <= 0) {
+        const msg = { cold: '☀️ 寒冷期が終わり、気候が戻りはじめた。', warm: '🍃 温暖期が終わり、気候が戻りはじめた。', super: '☀️ 超寒冷期が終わり、雪がゆっくり退きはじめた。' }[p.kind];
+        this.addLog(msg, 'event');
+        p.kind = null;
+        p.target = 0;
+        p.rate = 1.5;
+      }
+    }
+    const d = p.target - p.offset;
+    p.offset += Math.sign(d) * Math.min(Math.abs(d), p.rate);
+    this.climateOffset = Math.max(COLDEST, base + this.climateWobble + p.offset);
+
+    // 大きな波のどこにいるかを年代記に残す
+    const phase = this.phaseOf(year);
+    if (phase !== this.climatePhase) {
+      const msg = {
+        inter: '🌞 間氷期に入った。今より少し暖かく、海面が高い時代。',
+        cooling: '🍂 気候がゆっくり寒くなりはじめた（次の氷期へ）。',
+        glacial: '❄️ 氷期に入った。雪が増え、海面が下がっていく。浅瀬が陸橋になるかもしれない。',
+        warming: '☀️ 氷期が終わり、急速に暖かくなっていく。海面が上がり、陸橋が沈んでいく。',
+      }[phase];
+      this.addLog(msg, 'event');
+      this.climatePhase = phase;
+    }
+  }
+
+  phaseOf(year) {
+    const { cold } = CLIMATE_AMPLITUDE[this.opts.climateAmplitude] ?? CLIMATE_AMPLITUDE.realistic;
+    const base = this.cycleTemp(year);
+    if (this.cyclePhase(year) >= COOLING_SHARE) return 'warming';
+    return base > 0 ? 'inter' : base > cold / 2 ? 'cooling' : 'glacial';
+  }
+
+  get climateLabel() {
+    return { inter: '間氷期', cooling: '寒冷化', glacial: '氷期', warming: '温暖化' }[this.climatePhase] ?? '';
   }
 
   _newHaplo({ name, parent, founderId, established }) {
@@ -755,8 +824,8 @@ export class World {
     const r = this.rng;
     if (r.chance(0.06)) this.triggerEpidemic();
     if (r.chance(0.05)) this.triggerFamine();
-    if (this.coldEraYears === 0 && r.chance(0.012)) this.triggerColdEra();
-    else if (this.coldEraYears === 0 && r.chance(0.0015)) this.triggerSuperColdEra();
+    // 寒冷期・温暖期は気候の波として自然に来るので、ランダムには起こさない。超寒冷期だけがまれな出来事
+    if (!this.push.kind && r.chance(0.0015)) this.triggerSuperColdEra();
     if (r.chance(0.015)) this.triggerStorm();
     if (this.predators === 0 && r.chance(PREDATOR.immigrationChance)) {
       this.predators = 2;
@@ -909,8 +978,17 @@ export class World {
         const to = island.landmassById(landed.land);
         const from = island.landmassById(home);
         const first = !this.creatures.some((o) => o.alive && !group.includes(o) && island.landmassAt(o.x, o.y) === landed.land);
+        const bothSexes = group.some((g) => g.sex === 'F') && group.some((g) => g.sex === 'M');
         const who = group.length === 1 ? `${c.clan}の${c.name}` : `${c.clan}の${c.name}ら ${group.length} 匹`;
-        this.addLog(`🪵 ${who}が流木に乗って${from?.name ?? '?'}から${to?.name ?? '?'}に流れ着いた${first ? '（無人の島に上陸）' : ''}。`, 'event', c.id);
+        this.raftLogged ??= new Map();
+        // 無人の島へは、オスとメスがそろっていて新しい集団を始められるときだけ記録する。
+        // すでに住んでいる島へ渡ったとき（遺伝子の流入）は、同じ島について 10 年に 1 回まで
+        if (first && bothSexes) {
+          this.addLog(`🪵 ${who}が流木に乗って${from?.name ?? '?'}から無人の${to?.name ?? '?'}に流れ着いた。オスとメスがそろっている。`, 'event', c.id);
+        } else if (!first && this.year - (this.raftLogged.get(landed.land) ?? -99) >= 10) {
+          this.raftLogged.set(landed.land, this.year);
+          this.addLog(`🪵 ${who}が流木に乗って${from?.name ?? '?'}から${to?.name ?? '?'}に渡った（島どうしの遺伝子の行き来）。`, 'event', c.id);
+        }
       }
     }
     this.creatures = this.creatures.filter((c) => c.alive);
@@ -933,19 +1011,27 @@ export class World {
 
   // 超寒冷期：夏でも島の大半が雪に覆われる。暖かい海辺だけがわずかに残る避難所になる
   triggerSuperColdEra() {
-    this.coldEraYears = 15 + this.rng.int(20);
-    this.climateTarget = SUPER_COLD_OFFSET;
-    this.climateRate = 4;
-    this.superCold = true;
-    this.addLog(`🧊 超寒冷期に突入（約${this.coldEraYears}年）。夏でも島の大半が雪に閉ざされる。生き延びられるのは海辺の暖かい場所だけ…`, 'bad');
+    const years = 15 + this.rng.int(20);
+    Object.assign(this.push, { kind: 'super', years, rate: 4 });
+    this.addLog(`🧊 超寒冷期に突入（約${years}年）。夏でも島の大半が雪に閉ざされる。生き延びられるのは海辺の暖かい場所だけ…`, 'bad');
   }
 
+  // 寒冷期・温暖期のボタン：気候の波をしばらく押し下げる・押し上げる
   triggerColdEra() {
-    this.superCold = false;
-    this.climateRate = 1.5;
-    this.coldEraYears = 25 + this.rng.int(40);
-    this.climateTarget = -8;
-    this.addLog(`❄️ 寒冷期に突入（約${this.coldEraYears}年）。島が雪に覆われていく…`, 'event');
+    const years = 25 + this.rng.int(40);
+    Object.assign(this.push, { kind: 'cold', years, target: -5, rate: 1.5 });
+    this.addLog(`❄️ 寒冷期に突入（約${years}年）。島が雪に覆われていく…`, 'event');
+  }
+
+  triggerWarmEra() {
+    const years = 20 + this.rng.int(25);
+    Object.assign(this.push, { kind: 'warm', years, target: 3, rate: 1.5 });
+    this.addLog(`🔥 温暖期に突入（約${years}年）。雪が消え、海面が上がって低い海辺が沈んでいく。`, 'event');
+  }
+
+  // 出来事による押しを早めに終わらせる
+  endClimatePush() {
+    if (this.push.kind) this.push.years = 1;
   }
 
   triggerStorm() {
@@ -1023,6 +1109,7 @@ export class World {
       freqs: Object.fromEntries(Object.entries(freqs).map(([k, v]) => [k, v.freq])),
       pheno,
       climate: this.climateOffset,
+      seaLevel: this.island.seaLevel,
       snow: this.snowSum != null ? this.snowSum / 12 : this.snowCover,
       sexsel: sexualSelectionStats(cs),
       islands: (() => {

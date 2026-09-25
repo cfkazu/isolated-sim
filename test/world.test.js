@@ -154,17 +154,21 @@ test('World: 家系の記録は古くなっても消えず、ゲノムだけが�
 
 test('島: 海面が下がると陸が広がり、上げると戻る。小島は名前を保つ', () => {
   const w = new World({ seed: 'sea' });
+  // 気候の波の途中から始まるので、海面を今と同じ高さにそろえてから試す
+  w.island.seaLevel = 0;
+  w.terrainChanged('edit');
   const area0 = w.island.area;
+  const before = new Set(w.island.landmasses.map((m) => m.id));
   assert.ok(w.createIslet());
-  assert.equal(w.island.landmasses.length, 2);
-  const isletName = w.island.landmasses[1].name;
+  const islet = w.island.landmasses.find((m) => !before.has(m.id));
+  assert.ok(islet, '小島ができる');
   w.island.seaLevel = -0.12;
   w.terrainChanged('sea-fall');
   assert.ok(w.island.area > area0);
-  assert.equal(w.island.landmasses.filter((m) => m.size >= 15).length, 1, '浅瀬が陸橋になり小島と陸続きになる');
+  assert.ok(!w.island.landmasses.some((m) => m.id === islet.id), '浅瀬が陸橋になり小島と陸続きになる');
   w.island.seaLevel = 0;
   w.terrainChanged('sea-rise');
-  assert.equal(w.island.landmasses[1]?.name, isletName, '切り離された小島は元の名前で呼ばれる');
+  assert.ok(w.island.landmasses.some((m) => m.name === islet.name), '切り離された小島は元の名前で呼ばれる');
 });
 
 test('World: 個体は海の上にいない。交配は同じ島の中だけ', () => {
@@ -188,4 +192,18 @@ test('World: 個体は海の上にいない。交配は同じ島の中だけ', (
     const father = w.pedigree.get(r.fatherId);
     assert.fail(`小島のメス #${r.motherId} に本島のオス #${father.id} の子が生まれた`);
   }
+});
+
+test('気候: 氷期から次の氷期まで約 600 年ののこぎり形。寒い側に大きく、暖かい側に小さく振れる', () => {
+  const w = new World({ seed: 'climate' });
+  const temps = Array.from({ length: 600 }, (_, y) => w.cycleTemp(y));
+  const min = Math.min(...temps);
+  const max = Math.max(...temps);
+  assert.ok(Math.abs(min - -6) < 0.2, `min ${min}`);
+  assert.ok(Math.abs(max - 1.5) < 0.2, `max ${max}`);
+  // ゆっくり冷えて急に暖まる：気温が下がっている年のほうがずっと多い
+  let falling = 0;
+  for (let y = 1; y < 600; y++) if (temps[y] < temps[y - 1]) falling++;
+  assert.ok(falling > 400, `下がる年 ${falling}`);
+  assert.equal(w.cycleTemp(0), w.cycleTemp(600));
 });

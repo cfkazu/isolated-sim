@@ -33,7 +33,7 @@ renderSettings(
   (name, value) => {
     state.opts[name] = value;
     // 実行中の島にすぐ反映できるもの
-    if (['mutationRate', 'searchImage', 'inbreedingAvoidance', 'randomEvents'].includes(name)) {
+    if (['mutationRate', 'searchImage', 'inbreedingAvoidance', 'randomEvents', 'climateCycleYears', 'climateAmplitude'].includes(name)) {
       state.world.opts[name] = value;
     }
   },
@@ -90,7 +90,8 @@ function renderClock() {
   $('#clock-month').textContent = MONTH_LABEL[w.month];
   $('#clock-temp').textContent = `${w.temperature.toFixed(1)}℃`;
   const st = [];
-  if (w.coldEraYears > 0) st.push(w.superCold ? '🧊超寒冷期' : '❄️寒冷期');
+  st.push(w.climateLabel);
+  if (w.push.kind) st.push({ cold: '❄️寒冷期', warm: '🔥温暖期', super: '🧊超寒冷期' }[w.push.kind]);
   if (w.snowCover >= 0.01) st.push(`雪 ${Math.round(w.snowCover * 100)}%`);
   if (w.epidemicMonths > 0) st.push('🦠疫病');
   if (w.famineMonths > 0) st.push('🥀干ばつ');
@@ -319,19 +320,19 @@ document.addEventListener('click', (e) => {
       w.triggerFamine();
       break;
     case 'cold':
-      if (w.coldEraYears > 0) {
-        w.coldEraYears = 1;
-        w.addLog('（寒冷期はまもなく終わる）', 'event');
-      } else w.triggerColdEra();
+      if (w.push.kind === 'cold') w.endClimatePush();
+      else w.triggerColdEra();
+      break;
+    case 'warm':
+      if (w.push.kind === 'warm') w.endClimatePush();
+      else w.triggerWarmEra();
       break;
     case 'storm':
       w.triggerStorm();
       break;
     case 'supercold':
-      if (w.coldEraYears > 0) {
-        w.coldEraYears = 1;
-        w.addLog('（寒冷期はまもなく終わる）', 'event');
-      } else w.triggerSuperColdEra();
+      if (w.push.kind === 'super') w.endClimatePush();
+      else w.triggerSuperColdEra();
       break;
     case 'castaway':
       w.addCastaways(6);
