@@ -58,7 +58,7 @@ test('World: 100 匹から始まり、15 歳を超えて生きる個体はいな
 
 test('World: 近親交配を避けると近親間の出産が減る', () => {
   const run = (avoid) => {
-    const w = new World({ seed: 'inbreed', inbreedingAvoidance: avoid, randomEvents: false, carryingCapacity: 60, initialCount: 30 });
+    const w = new World({ seed: 'inbreed', inbreedingAvoidance: avoid, randomEvents: false, fertility: 0.3, initialCount: 30 });
     for (let i = 0; i < 12 * 60 && !w.extinct; i++) w.step();
     return w.history.reduce((s, h) => s + h.inbredBirths, 0);
   };

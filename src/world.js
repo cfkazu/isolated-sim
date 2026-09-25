@@ -5,15 +5,17 @@ import { LOCI, randomGenome, makeGamete, fertilize, express } from './genes.js';
 import { generateIsland, TERRAIN } from './island.js';
 import { Pedigree } from './pedigree.js';
 import { alleleFrequencies, heterozygosity, phenotypeSummary } from './stats.js';
+import { Vegetation, BODY_RGB, contrast, groundAt, predationHazards, PREDATOR } from './ecology.js';
 
 export const DEFAULTS = {
   seed: 'island',
   initialCount: 100,
-  carryingCapacity: 250, // 島の食料で養える体格合計の目安
+  fertility: 1.0, // 草の育ちやすさ（島の豊かさ）
   maxAgeYears: 15, // この年齢で必ず死ぬ
   maturityMonths: 24,
   mutationRate: 0.0005, // 1 配偶子・1 遺伝子座あたり
-  predation: 1.0,
+  initialPredators: 6,
+  searchImage: 2, // 探索像の強さ k（1 なら色の多さに関係なく見つけやすさだけで狙う）
   glowPreference: 1.0, // メスが発光オスを好む強さ（性選択）
   inbreedingAvoidance: false,
   randomEvents: true,
@@ -33,16 +35,8 @@ export const DEATH_CAUSES = {
 
 export const MONTH_LABEL = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 const BREEDING_MONTHS = new Set([2, 3, 4, 5]);
-const SEASON_FOOD = [0.6, 0.6, 0.8, 1.1, 1.3, 1.35, 1.25, 1.2, 1.1, 1.0, 0.8, 0.7];
-
-// 背景に対する目立ちやすさ（捕食のされやすさ）
-export const VISIBILITY = {
-  [TERRAIN.BEACH]: { black: 0.9, green: 0.7, white: 0.35 },
-  [TERRAIN.GRASS]: { black: 0.75, green: 0.3, white: 0.9 },
-  [TERRAIN.FOREST]: { black: 0.4, green: 0.3, white: 1.0 },
-  [TERRAIN.ROCK]: { black: 0.45, green: 0.8, white: 0.7 },
-  snow: { black: 1.0, green: 0.9, white: 0.15 },
-};
+// 1 か月に必要な草の量（体格 1 あたり。幼体は半分）
+const FOOD_NEED = 0.08;
 
 export class World {
   constructor(options = {}) {
@@ -50,6 +44,9 @@ export class World {
     this.rng = createRng(this.opts.seed);
     this.island = generateIsland(this.rng);
     this.pedigree = new Pedigree();
+    this.vegetation = new Vegetation(this.island, this.opts.fertility);
+    this.predators = this.opts.initialPredators;
+    this.hunger = 0;
     this.tick = 0;
     this.nextId = 1;
     this.creatures = [];
@@ -137,6 +134,8 @@ export class World {
       alive: true,
       lastBredYear: -1,
       offspring: 0,
+      hunger: 0,
+      condition: 1, // 栄養状態（最近の満腹度の移動平均）
       deathTick: null,
       cause: null,
     };
@@ -164,12 +163,55 @@ export class World {
     return t !== TERRAIN.BEACH && this.island.elevationAt(x, y) > this.snowLine;
   }
 
+  // 目立ちやすさ = 体色と足元の地面の色の差（発光していればさらに目立つ）
   visibility(c) {
-    const t = this.isSnowAt(c.x, c.y) ? 'snow' : this.island.terrainAt(c.x, c.y);
-    const table = VISIBILITY[t] || VISIBILITY[TERRAIN.GRASS];
-    let v = table[c.pheno.color];
+    let v = contrast(BODY_RGB[c.pheno.color], groundAt(this, c.x, c.y));
     if (c.pheno.glow) v += 0.45;
     return v;
+  }
+
+  // 同じ草のマスにいる個体で草を分け合う。取り分は体格に関係なく頭数で等分なので、大きい体ほど足りなくなりやすい。
+  _feed() {
+    const veg = this.vegetation;
+    const cs = this.creatures;
+    const n = veg.veg.length;
+    const count = new Uint16Array(n);
+    const cells = new Int32Array(cs.length);
+    const need = new Float64Array(cs.length);
+    const got = new Float64Array(cs.length);
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      cells[i] = veg.cellAt(c.x, c.y);
+      need[i] = FOOD_NEED * c.pheno.size * (c.age < 12 ? 0.5 : 1);
+      count[cells[i]]++;
+    }
+    const eaten = new Float64Array(n);
+    for (let i = 0; i < cs.length; i++) {
+      const f = cells[i];
+      got[i] = Math.min(need[i], veg.edible(f) / count[f]);
+      eaten[f] += got[i];
+    }
+    // 食べきれずに余った分を、まだ足りない個体で分ける
+    const unsat = new Uint16Array(n);
+    for (let i = 0; i < cs.length; i++) if (got[i] < need[i]) unsat[cells[i]]++;
+    let hungerSum = 0;
+    for (let i = 0; i < cs.length; i++) {
+      const f = cells[i];
+      if (got[i] < need[i] && unsat[f] > 0) {
+        const extra = Math.min(need[i] - got[i], (veg.edible(f) - eaten[f]) / unsat[f]);
+        if (extra > 0) {
+          got[i] += extra;
+          eaten[f] += extra;
+        }
+      }
+      const c = cs[i];
+      c.hunger = 1 - got[i] / need[i];
+      c.condition = 0.75 * c.condition + 0.25 * (1 - c.hunger);
+      hungerSum += c.hunger;
+    }
+    for (let f = 0; f < n; f++) veg.veg[f] = Math.max(0, veg.veg[f] - eaten[f]);
+    this._cellCount = count;
+    this.hunger = cs.length ? hungerSum / cs.length : 0;
   }
 
   // 1 か月進める
@@ -181,16 +223,26 @@ export class World {
     const o = this.opts;
     const maxAge = o.maxAgeYears * 12;
 
-    let demand = 0;
-    for (const c of this.creatures) demand += c.age < 12 ? c.pheno.size * 0.5 : c.pheno.size;
-    const food = o.carryingCapacity * SEASON_FOOD[this.month] * (this.famineMonths > 0 ? 0.45 : 1);
-    const hunger = demand > 0 ? Math.max(0, 1 - food / demand) : 0;
-    this.hunger = hunger;
+    this.vegetation.grow(T, this.famineMonths > 0);
+    this._feed();
     const epidemic = this.epidemicMonths > 0;
 
+    // 捕食：見つけやすさ（目立ちやすさ・小ささ・幼さ）と探索像から、個体ごとの被食確率を出す
+    const cs = this.creatures;
+    const detect = new Float64Array(cs.length);
+    const colors = new Array(cs.length);
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      detect[i] = this.visibility(c) * (1.35 - 0.35 * c.pheno.size) * (c.age < 12 ? 1.6 : 1);
+      colors[i] = c.pheno.color;
+    }
+    const { hazards: predHazard } = predationHazards(this.predators, detect, colors, o.searchImage);
+
+    let kills = 0;
     const causes = ['starvation', 'predation', 'climate', 'disease', 'genetic', 'accident'];
     const h = new Array(causes.length);
-    for (const c of this.creatures) {
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
       c.px = c.x;
       c.py = c.y;
       c.age++;
@@ -199,10 +251,10 @@ export class World {
         continue;
       }
       const ph = c.pheno;
-      // 飢え：体が大きいほど多く食べる必要がある
-      h[0] = 0.45 * hunger * ph.size * ph.size;
-      // 捕食：目立つほど、小さいほど狙われる
-      h[1] = 0.009 * o.predation * this.visibility(c) * (1.35 - 0.35 * ph.size) * (c.age < 12 ? 1.6 : 1);
+      // 飢え：栄養状態（ここ数か月の満腹度）が悪いほど危ない。1 か月食べ損ねただけではまず死なない
+      const starving = 1 - c.condition;
+      h[0] = 0.6 * starving * starving * (c.age < 12 ? 1.5 : 1);
+      h[1] = predHazard[i];
       // 気候：毛皮と体格で最適温度が変わる（ベルクマンの法則）
       const topt = 22 - 22 * ph.fur - 8 * (ph.size - 1);
       const excess = Math.max(0, Math.abs(T - topt) - 9);
@@ -218,13 +270,16 @@ export class World {
       let total = 0;
       for (const v of h) total += v;
       if (rng.next() < total) {
-        this._kill(c, causes[rng.weightedIndex(h)]);
+        const cause = causes[rng.weightedIndex(h)];
+        this._kill(c, cause);
+        if (cause === 'predation') kills++;
         continue;
       }
       this._move(c);
     }
+    this._updatePredators(kills);
 
-    if (BREEDING_MONTHS.has(this.month)) this._breed(demand);
+    if (BREEDING_MONTHS.has(this.month)) this._breed();
 
     this.creatures = this.creatures.filter((c) => c.alive);
     if (this.epidemicMonths > 0) this.epidemicMonths--;
@@ -235,7 +290,55 @@ export class World {
     this._checkExtinction();
   }
 
+  // 捕食者は食べた数に応じて増え、一定の割合で死ぬ（ロトカ＝ヴォルテラ型）
+  _updatePredators(kills) {
+    const P = this.predators;
+    if (P <= 0) return;
+    const next = P + kills / PREDATOR.killsPerBirth - PREDATOR.mortality * P;
+    if (next < 0.5) {
+      this.predators = 0;
+      this.addLog('🦅 捕食者が島から姿を消した。保護色はもう意味を持たない。', 'event');
+    } else {
+      this.predators = next;
+    }
+  }
+
   _move(c) {
+    // お腹が空いていれば、隣接する草のマスのうち「草の量 ÷ (先客 + 1)」が一番大きい方へ移る（採餌）
+    if (c.hunger > 0.05 && c.age >= 6) {
+      const veg = this.vegetation;
+      const here = veg.cellAt(c.x, c.y);
+      const hx = here % veg.FW;
+      const hy = (here - hx) / veg.FW;
+      const occ = this._cellCount;
+      let best = null;
+      let bestScore = veg.edible(here) / (occ ? occ[here] : 1);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const fx = hx + dx;
+          const fy = hy + dy;
+          if (fx < 0 || fy < 0 || fx >= veg.FW || fy >= veg.FH) continue;
+          const f = fy * veg.FW + fx;
+          const score = veg.edible(f) / ((occ ? occ[f] : 0) + 1);
+          if (score <= bestScore) continue;
+          const nx = (fx + this.rng.next()) / veg.FW;
+          const ny = (fy + this.rng.next()) / veg.FH;
+          if (!this.island.isLand(nx, ny)) continue;
+          bestScore = score;
+          best = [nx, ny, f];
+        }
+      }
+      if (best) {
+        c.x = best[0];
+        c.y = best[1];
+        if (occ) {
+          occ[here]--;
+          occ[best[2]]++;
+        }
+        return;
+      }
+    }
     const step = c.age < 6 ? 0.004 : 0.009;
     for (let t = 0; t < 4; t++) {
       const a = this.rng.next() * Math.PI * 2;
@@ -249,24 +352,24 @@ export class World {
     }
   }
 
-  _breed(demand) {
+  _breed() {
     const o = this.opts;
     const rng = this.rng;
     const males = this.creatures.filter((c) => c.alive && c.sex === 'M' && c.age >= o.maturityMonths);
     if (males.length === 0) return;
-    const density = demand / o.carryingCapacity;
-    const lambda = 1.5 * Math.max(0, 1.2 - density);
     const females = this.creatures.filter(
       (c) => c.alive && c.sex === 'F' && c.age >= o.maturityMonths && c.lastBredYear !== this.year,
     );
     for (const f of females) {
-      if (rng.next() > 0.45) continue;
+      // やせ細ったメスは繁殖しない
+      if (f.condition < 0.35 || rng.next() > 0.45) continue;
       const mate = this._chooseMate(f, males);
       if (!mate) continue;
       f.lastBredYear = this.year;
       this.counters.matings++;
       const F = this.pedigree.kinship(f.id, mate.id);
-      const litter = Math.min(4, 1 + rng.poisson(lambda));
+      // 栄養状態がよいほど多く産む
+      const litter = Math.min(4, 1 + rng.poisson(1.8 * f.condition * f.condition));
       let born = 0;
       for (let k = 0; k < litter; k++) {
         const egg = makeGamete(f.genome, 'F', rng, o.mutationRate);
@@ -362,6 +465,15 @@ export class World {
     if (r.chance(0.05)) this.triggerFamine();
     if (this.coldEraYears === 0 && r.chance(0.012)) this.triggerColdEra();
     if (r.chance(0.015)) this.triggerStorm();
+    if (this.predators === 0 && r.chance(PREDATOR.immigrationChance)) {
+      this.predators = 2;
+      this.addLog('🦅 海を越えて捕食者のつがいが島に渡ってきた。', 'event');
+    }
+  }
+
+  releasePredators(n = 4) {
+    this.predators += n;
+    this.addLog(`🦅 捕食者を ${n} 匹放った（いま約 ${Math.round(this.predators)} 匹）。`, 'event');
   }
 
   triggerEpidemic() {
@@ -371,12 +483,12 @@ export class World {
 
   triggerFamine() {
     this.famineMonths = 12;
-    this.addLog('🥀 不作の年。食料が半分以下に（大きな個体ほど苦しい）。', 'event');
+    this.addLog('🥀 干ばつの年。草がほとんど育たない（大きな個体ほど苦しい）。', 'event');
   }
 
   triggerColdEra() {
     this.coldEraYears = 25 + this.rng.int(40);
-    this.climateTarget = -12;
+    this.climateTarget = -8;
     this.addLog(`❄️ 寒冷期に突入（約${this.coldEraYears}年）。島が雪に覆われていく…`, 'event');
   }
 
@@ -455,6 +567,10 @@ export class World {
       freqs: Object.fromEntries(Object.entries(freqs).map(([k, v]) => [k, v.freq])),
       pheno,
       climate: this.climateOffset,
+      predators: this.predators,
+      kills: this.counters.deaths.predation,
+      vegetation: this.vegetation.meanFraction(),
+      hunger: this.hunger,
     };
     this.history.push(rec);
     if (this.history.length === 1) {

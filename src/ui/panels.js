@@ -111,6 +111,7 @@ export function renderCreaturePanel(el, world, c, pinned) {
       <dt>近交係数 F</dt><dd>${c.F.toFixed(4)} ${c.F >= 0.125 ? '<span class="badge warn">近親交配の子</span>' : ''}</dd>
       <dt>見た目</dt><dd>${COLOR_LABEL[ph.color]}・${PATTERN_LABEL[ph.pattern]}・尾が${TAIL_LABEL[ph.tail]}${ph.glow ? '・<strong>発光</strong>' : ''}</dd>
       <dt>体格 / 毛皮</dt><dd>${ph.size.toFixed(2)} / ${pct(ph.fur)}</dd>
+      <dt>栄養状態</dt><dd>${pct(c.condition)}${c.alive && c.hunger > 0.2 ? ' <span class="badge warn">空腹</span>' : ''}</dd>
       <dt>免疫力</dt><dd>${pct(ph.resistance)}${ph.load ? ` <span class="badge warn">遺伝病 ×${ph.load}</span>` : ''}</dd>
       <dt>子の数</dt><dd>${children.length} 匹（生存 ${aliveChildren.length}）</dd>
       ${terrainInfo}
@@ -250,6 +251,12 @@ export class StatsPanel {
         { label: '免疫ヘテロの割合', color: '--series-3' },
       ],
     });
+    this.pred = new Chart(host, {
+      title: '捕食者の数',
+      desc: '獲物が増えると捕食者が増え、食べ尽くすと飢えて減る。0 になると島から消える（まれに海を越えて渡ってくる）。',
+      format: (v, tip) => (tip ? v.toFixed(1) : String(Math.round(v))),
+      series: [{ label: '捕食者', color: '--series-5' }],
+    });
     this.births = new Chart(host, {
       title: '年間の出生',
       series: [
@@ -278,6 +285,7 @@ export class StatsPanel {
       H.map((h) => (h.pheno.glowM + h.pheno.glowF) / n(h)),
       H.map((h) => h.pheno.resistant / n(h)),
     ]);
+    this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
     const hb = H.slice(1);
     this.births.setData(
       hb.map((h) => h.year),
@@ -310,7 +318,7 @@ export class StatsPanel {
   }
 
   redraw() {
-    for (const c of [this.pop, this.div, this.color, this.traits, this.births]) c.draw();
+    for (const c of [this.pop, this.div, this.color, this.traits, this.pred, this.births]) c.draw();
   }
 }
 
@@ -402,9 +410,9 @@ export function renderGuide(el) {
     同じ染色体上で近い遺伝子ほど一緒に遺伝しやすい（連鎖）。まれに<strong>突然変異</strong>も起きる。</p>
     <h3>生死を分けるもの（自然選択）</h3>
     <ul class="small">
-      <li><strong>捕食</strong>：背景に溶け込む体色ほど見つかりにくい（草原・森では緑、砂浜・雪では白、岩場では黒）。発光すると目立つ。</li>
+      <li><strong>捕食</strong>：島には捕食者がいる（数だけで表現）。体色と足元の地面の色の差が大きいほど見つかりやすい。地図に見えている地面の色がそのまま使われる。発光すると目立つ。捕食者は<strong>よく見かける色を重点的に探す</strong>（探索像）ので、多数派の色ほど狙われやすい。捕食者の数は獲物の量に応じて増減する。</li>
       <li><strong>気候</strong>：毛皮が厚く体が大きいほど寒さに強く、暑さに弱い。</li>
-      <li><strong>飢え</strong>：島の食料は限られ、大きい個体ほど多く食べる。冬と不作の年は食料が減る。</li>
+      <li><strong>飢え</strong>：草はマスごとに育ち、食べられて減る。同じマスの個体で頭数割りに分け合うので、たくさん食べる大きな個体ほど足りなくなりやすい。草は寒いと育たず、干ばつの年はほとんど育たない。食べ尽くされた地面は土の色になる（そこでは黒が目立たない）。</li>
       <li><strong>病気</strong>：免疫型 A/B のヘテロが強い。疫病の年は差が大きく出る。</li>
       <li><strong>遺伝病</strong>：劣性有害遺伝子をホモでもつと弱る。劣性致死 l/l は生まれてこない。</li>
       <li><strong>性選択</strong>：メスは大きいオスと発光するオスを好む。</li>
@@ -441,12 +449,14 @@ export function renderSettings(el, opts, onChange, onRestart) {
     <p class="hint">これらは「この設定で新しい島を始める」を押したときに反映されます。</p>
     <label class="field">シード（同じシードなら同じ島・同じ歴史）<input type="text" name="seed" value="${String(o.seed).replace(/"/g, '&quot;')}"></label>
     <label class="field">最初の個体数<input type="number" name="initialCount" min="2" max="1000" value="${o.initialCount}"></label>
-    <label class="field">島の豊かさ（環境収容力）<input type="number" name="carryingCapacity" min="10" max="2000" value="${o.carryingCapacity}"></label>
+    <label class="field">島の豊かさ（草の育ちやすさ）<input type="number" name="fertility" step="0.1" min="0.1" max="5" value="${o.fertility}"></label>
+    <label class="field">最初の捕食者の数<input type="number" name="initialPredators" min="0" max="100" value="${o.initialPredators}"></label>
     <div class="btn-row"><button type="button" class="primary" data-action="restart">この設定で新しい島を始める</button>
     <button type="button" data-action="random-seed">ランダムなシードで始める</button></div>
     <h2 style="margin-top:18px">今すぐ反映される設定</h2>
     <label class="field">突然変異率（1遺伝子座・1配偶子あたり）<input type="number" name="mutationRate" step="0.0001" min="0" max="0.05" value="${o.mutationRate}"></label>
-    <label class="field">捕食の強さ<input type="number" name="predation" step="0.1" min="0" max="5" value="${o.predation}"></label>
+    <label class="field">捕食者の探索像の強さ k<input type="number" name="searchImage" step="0.1" min="1" max="4" value="${o.searchImage}"></label>
+    <p class="hint">k = 1 なら捕食者は目立つ獲物を狙うだけ。k が大きいほど「よく見かける色」を重点的に探すので、少数派の色が有利になる。</p>
     <label class="field">発光オスへの好み（性選択）<input type="number" name="glowPreference" step="0.1" min="0" max="5" value="${o.glowPreference}"></label>
     <label class="check"><input type="checkbox" name="inbreedingAvoidance" ${o.inbreedingAvoidance ? 'checked' : ''}> 近親交配を避ける（半きょうだい以上の近親とは交配しない）</label>
     <label class="check"><input type="checkbox" name="randomEvents" ${o.randomEvents ? 'checked' : ''}> ランダムな出来事（疫病・不作・寒冷期・大嵐）</label>

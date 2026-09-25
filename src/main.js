@@ -28,7 +28,7 @@ renderSettings(
   (name, value) => {
     state.opts[name] = value;
     // 実行中の島にすぐ反映できるもの
-    if (['mutationRate', 'predation', 'glowPreference', 'inbreedingAvoidance', 'randomEvents'].includes(name)) {
+    if (['mutationRate', 'searchImage', 'glowPreference', 'inbreedingAvoidance', 'randomEvents'].includes(name)) {
       state.world.opts[name] = value;
     }
   },
@@ -86,7 +86,7 @@ function renderClock() {
   const st = [];
   if (w.coldEraYears > 0) st.push('❄️寒冷期');
   if (w.epidemicMonths > 0) st.push('🦠疫病');
-  if (w.famineMonths > 0) st.push('🥀不作');
+  if (w.famineMonths > 0) st.push('🥀干ばつ');
   $('#clock-status').textContent = st.join(' ');
 }
 
@@ -94,16 +94,15 @@ function renderQuickStats() {
   const w = state.world;
   const cs = w.creatures;
   const males = cs.filter((c) => c.sex === 'M').length;
-  const adults = cs.filter((c) => c.age >= w.opts.maturityMonths).length;
   const h = w.history.at(-1);
   const he0 = w.history[0].He || 1;
-  const hunger = Math.round((w.hunger || 0) * 100);
+  const grass = Math.round(w.vegetation.meanFraction() * 100);
   $('#quick-stats').innerHTML = [
     ['個体数', cs.length, `♀${cs.length - males} ♂${males}`],
-    ['成体', adults, '2歳以上'],
     ['遺伝的多様性', `${Math.round((h.He / he0) * 100)}%`, '最初を100%として'],
     ['平均近交係数', h.meanF.toFixed(3), '昨年末'],
-    ['飢え', `${hunger}%`, hunger > 0 ? '食料不足' : '食料は足りている'],
+    ['捕食者', Math.round(w.predators), w.predators > 0 ? `昨年 ${h.kills ?? 0} 匹を捕食` : '島にいない'],
+    ['草の量', `${grass}%`, `空腹の個体 ${cs.filter((c) => c.hunger > 0.2).length} 匹`],
   ]
     .map(([l, v, s]) => `<div class="tile"><div class="label">${l}</div><div class="value">${v}</div><div class="sub">${s}</div></div>`)
     .join('');
@@ -253,6 +252,9 @@ document.addEventListener('click', (e) => {
     case 'castaway':
       w.addCastaways(6);
       break;
+    case 'predators':
+      w.releasePredators(4);
+      break;
   }
   switch (t.dataset.action) {
     case 'pin':
@@ -282,7 +284,7 @@ window.addEventListener('resize', () => {
   if (state.tab === 'genes') genesPanel.redraw();
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  mapView.snowLine = null;
+  mapView.drawnTick = null;
   renderLegend();
   refresh(true);
 });

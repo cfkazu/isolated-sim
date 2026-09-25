@@ -15,7 +15,7 @@ for (let y = 0; y < years && !w.extinct; y++) {
     console.log(
       `y${String(h.year).padStart(4)} pop ${String(h.pop).padStart(4)} ♂${h.males} ♀${h.females} births ${h.births} still ${h.stillborn} ` +
         `F ${h.meanF.toFixed(3)} He ${h.He.toFixed(3)} col K${c.black}/G${c.green}/w${c.white} glow ${h.pheno.glowM + h.pheno.glowF} ` +
-        `size ${h.pheno.meanSize.toFixed(2)} fur ${h.pheno.meanFur.toFixed(2)} | ${d}`,
+        `size ${h.pheno.meanSize.toFixed(2)} fur ${h.pheno.meanFur.toFixed(2)} pred ${h.predators.toFixed(1)} veg ${(h.vegetation * 100).toFixed(0)}% hun ${h.hunger.toFixed(2)} | ${d}`,
     );
   }
 }

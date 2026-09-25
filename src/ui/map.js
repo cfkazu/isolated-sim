@@ -2,13 +2,8 @@
 
 import { TERRAIN } from '../island.js';
 import { cssVar } from './charts.js';
+import { groundOfCell } from '../ecology.js';
 
-const TERRAIN_RGB = {
-  [TERRAIN.BEACH]: [233, 216, 166],
-  [TERRAIN.GRASS]: [150, 196, 96],
-  [TERRAIN.FOREST]: [70, 128, 64],
-  [TERRAIN.ROCK]: [150, 146, 136],
-};
 
 // 近交係数用の単色（青）の連続スケール
 const F_RAMP = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
@@ -59,51 +54,40 @@ export class MapView {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.terrainCanvas = document.createElement('canvas');
-    this.snowCanvas = document.createElement('canvas');
-    this.snowLine = null;
     this.island = null;
     this.mode = 'natural';
   }
 
   setIsland(island) {
     this.island = island;
-    const { W, H, terrain, elevation } = island;
-    const tc = this.terrainCanvas;
-    tc.width = W;
-    tc.height = H;
-    const img = tc.getContext('2d').createImageData(W, H);
+    this.terrainCanvas.width = island.W;
+    this.terrainCanvas.height = island.H;
+    this.image = this.terrainCanvas.getContext('2d').createImageData(island.W, island.H);
+    this.drawnTick = null;
+  }
+
+  // 地面の色は植生と雪で毎月変わる。捕食者が見ている色（ecology.js の groundOfCell）をそのまま描く。
+  _updateTerrain(world) {
+    if (this.drawnTick === world.tick) return;
+    this.drawnTick = world.tick;
+    const { W, H, terrain, elevation } = this.island;
+    const data = this.image.data;
     for (let i = 0; i < W * H; i++) {
       let rgb;
       if (terrain[i] === TERRAIN.SEA) {
-        const d = Math.max(-0.4, elevation[i]);
-        const k = 1 + d * 1.2;
-        rgb = [43 * k, 108 * k, 163 * k];
-        if (elevation[i] > -0.03) rgb = [96, 160, 200];
+        const k = 1 + Math.max(-0.4, elevation[i]) * 1.2;
+        rgb = elevation[i] > -0.03 ? [96, 160, 200] : [43 * k, 108 * k, 163 * k];
       } else {
-        const base = TERRAIN_RGB[terrain[i]];
-        const shade = 0.88 + elevation[i] * 0.22;
-        rgb = base.map((v) => v * shade);
+        const shade = 0.9 + elevation[i] * 0.2;
+        const g = groundOfCell(world, i);
+        rgb = [g[0] * shade, g[1] * shade, g[2] * shade];
       }
-      img.data.set([rgb[0], rgb[1], rgb[2], 255], i * 4);
+      data[i * 4] = rgb[0];
+      data[i * 4 + 1] = rgb[1];
+      data[i * 4 + 2] = rgb[2];
+      data[i * 4 + 3] = 255;
     }
-    tc.getContext('2d').putImageData(img, 0, 0);
-    this.snowLine = null;
-  }
-
-  _updateSnow(world) {
-    if (this.snowLine !== null && Math.abs(this.snowLine - world.snowLine) < 0.01) return;
-    this.snowLine = world.snowLine;
-    const { W, H, terrain, elevation } = this.island;
-    const sc = this.snowCanvas;
-    sc.width = W;
-    sc.height = H;
-    const img = sc.getContext('2d').createImageData(W, H);
-    for (let i = 0; i < W * H; i++) {
-      if (terrain[i] !== TERRAIN.SEA && terrain[i] !== TERRAIN.BEACH && elevation[i] > this.snowLine) {
-        img.data.set([246, 248, 252, 235], i * 4);
-      }
-    }
-    sc.getContext('2d').putImageData(img, 0, 0);
+    this.terrainCanvas.getContext('2d').putImageData(this.image, 0, 0);
   }
 
   resize() {
@@ -139,9 +123,8 @@ export class MapView {
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = true;
+    this._updateTerrain(world);
     ctx.drawImage(this.terrainCanvas, 0, 0, w, h);
-    this._updateSnow(world);
-    ctx.drawImage(this.snowCanvas, 0, 0, w, h);
 
     const scale = w / 640;
     const t = Math.max(0, Math.min(1, frac));
