@@ -322,3 +322,129 @@ export function selectionSummary(recs) {
     .filter(Boolean)
     .sort((a, b) => (b.t ?? -1) - (a.t ?? -1));
 }
+
+// ───── 遺伝子のサマリー（量的でない遺伝子） ─────
+// 見た目の分布と対立遺伝子の頻度、それに「見た目に出ていない遺伝子」をひと目で見るためのカード用データ。
+// segments の color は CSS 変数名。
+
+const pctText = (v) => `${Math.round(v * 100)}%`;
+
+export function mendelianSummary(creatures, freqs = alleleFrequencies(creatures)) {
+  const n = Math.max(1, creatures.length);
+  const count = (pred) => creatures.filter(pred).length;
+  const has = (c, key, a) => allelesOf(c, key).includes(a);
+  const alleles = (key, colors) =>
+    LOCUS[key].alleles.map((a, i) => ({ label: `${a}${LOCUS[key].labels?.[a] ? `（${LOCUS[key].labels[a]}）` : ''}`, value: freqs[key].freq[a], color: colors[i] }));
+  const cards = [];
+
+  const col = { black: 0, green: 0, white: 0 };
+  for (const c of creatures) col[c.pheno.color]++;
+  const wCarrier = count((c) => c.pheno.color !== 'white' && has(c, 'COL', 'w'));
+  cards.push({
+    key: 'COL',
+    title: '体色',
+    segments: [
+      { label: '黒', value: col.black / n, color: '--body-black' },
+      { label: '緑', value: col.green / n, color: '--body-green' },
+      { label: '白', value: col.white / n, color: '--body-white' },
+    ],
+    alleles: alleles('COL', ['--body-black', '--body-green', '--body-white']),
+    note: `見た目が白は ${pctText(col.white / n)}。ほかに ${pctText(wCarrier / n)} が白の遺伝子 w を隠し持つ。`,
+  });
+
+  const pat = { spots: 0, stripes: 0, both: 0, plain: 0 };
+  for (const c of creatures) pat[c.pheno.pattern]++;
+  cards.push({
+    key: 'PAT',
+    title: '模様',
+    segments: [
+      { label: '斑点', value: pat.spots / n, color: '--series-1' },
+      { label: '縞', value: pat.stripes / n, color: '--series-2' },
+      { label: '斑点＋縞', value: pat.both / n, color: '--series-5' },
+      { label: '無地', value: pat.plain / n, color: '--grid' },
+    ],
+    alleles: alleles('PAT', ['--series-1', '--series-2', '--grid']),
+    note: `斑点＋縞（S と T の共優性）は ${pctText(pat.both / n)}。`,
+  });
+
+  const ear = [0, 0, 0];
+  for (const c of creatures) ear[c.pheno.ear]++;
+  cards.push({
+    key: 'EAR',
+    title: '耳の形',
+    segments: [
+      { label: '立ち耳', value: ear[2] / n, color: '--series-1' },
+      { label: '半立ち', value: ear[1] / n, color: '--series-3' },
+      { label: '垂れ耳', value: ear[0] / n, color: '--series-2' },
+    ],
+    alleles: alleles('EAR', ['--series-1', '--series-2']),
+    note: '生死にも好みにも関わらない中立な形質。割合は偶然だけで揺れる（遺伝的浮動）。',
+  });
+
+  const males = creatures.filter((c) => c.sex === 'M');
+  const females = creatures.filter((c) => c.sex === 'F');
+  const glowM = males.filter((c) => c.pheno.glow).length;
+  const glowF = females.filter((c) => c.pheno.glow).length;
+  const carrierF = females.filter((c) => !c.pheno.glow && has(c, 'GLW', 'g')).length;
+  cards.push({
+    key: 'GLW',
+    title: '発光',
+    segments: [
+      { label: '発光する', value: (glowM + glowF) / n, color: '--series-4' },
+      { label: '発光しない', value: 1 - (glowM + glowF) / n, color: '--grid' },
+    ],
+    alleles: alleles('GLW', ['--grid', '--series-4']),
+    note: `オスの ${pctText(glowM / Math.max(1, males.length))}、メスの ${pctText(glowF / Math.max(1, females.length))} が発光（X 連鎖劣性なのでオスに出やすい）。発光しないメスの保因者 ${pctText(carrierF / Math.max(1, females.length))}。`,
+  });
+
+  const het = count((c) => c.pheno.resistance > 0.8);
+  const aa = count((c) => c.pheno.resistance > 0.5 && c.pheno.resistance <= 0.8);
+  cards.push({
+    key: 'VIT',
+    title: '免疫型',
+    segments: [
+      { label: 'A/B（強い）', value: het / n, color: '--series-3' },
+      { label: 'A/A', value: aa / n, color: '--series-1' },
+      { label: 'B/B', value: (n - het - aa) / n, color: '--series-2' },
+    ],
+    alleles: alleles('VIT', ['--series-1', '--series-2']),
+    note: `ヘテロ（最も病気に強い）は ${pctText(het / n)}。超優性なので A も B も消えにくい。`,
+  });
+
+  const letCarrier = count((c) => has(c, 'LET', 'l'));
+  cards.push({
+    key: 'LET',
+    title: '致死因子',
+    segments: [
+      { label: '保因者（L/l）', value: letCarrier / n, color: '--series-2' },
+      { label: 'なし', value: 1 - letCarrier / n, color: '--grid' },
+    ],
+    alleles: alleles('LET', ['--grid', '--series-2']),
+    note: `l/l の子は生まれてこない。保因者は健康なまま ${pctText(letCarrier / n)} いる。`,
+  });
+
+  const dl = ['DL1', 'DL2', 'DL3'];
+  const sick = count((c) => c.pheno.load > 0);
+  const dCarrier = count((c) => c.pheno.load === 0 && dl.some((k) => has(c, k, 'd')));
+  const dFreq = dl.reduce((a, k) => a + freqs[k].freq.d, 0) / dl.length;
+  cards.push({
+    key: 'DL1',
+    title: '有害因子（3 座）',
+    segments: [
+      { label: '発症（d/d）', value: sick / n, color: '--bad' },
+      { label: '保因者', value: dCarrier / n, color: '--series-2' },
+      { label: 'なし', value: (n - sick - dCarrier) / n, color: '--grid' },
+    ],
+    alleles: [
+      { label: 'D（正常）', value: 1 - dFreq, color: '--grid' },
+      { label: 'd（有害・3 座平均）', value: dFreq, color: '--series-2' },
+    ],
+    note: `発症 ${pctText(sick / n)}、保因者 ${pctText(dCarrier / n)}。近親交配が進むと発症が増える（近交弱勢）。`,
+  });
+  return cards;
+}
+
+function allelesOf(c, key) {
+  const i = INDEX[key];
+  return [c.genome.m[i], c.genome.p[i]].filter((a) => a !== null);
+}

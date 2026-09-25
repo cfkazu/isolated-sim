@@ -51,17 +51,25 @@ export class Vegetation {
     const n = this.FW * this.FH;
     this.cap = new Float32Array(n);
     this.veg = new Float32Array(n);
+    this.elev = new Float32Array(n); // 草のマスの平均標高（陸地のみ）
     const count = new Float32Array(n);
+    const land = new Float32Array(n);
     for (let y = 0; y < island.H; y++) {
       for (let x = 0; x < island.W; x++) {
         const f = Math.floor(y / FOOD_CELL) * this.FW + Math.floor(x / FOOD_CELL);
-        this.cap[f] += TERRAIN_CAP[island.terrain[y * island.W + x]];
+        const i = y * island.W + x;
+        this.cap[f] += TERRAIN_CAP[island.terrain[i]];
         count[f]++;
+        if (island.terrain[i] !== TERRAIN.SEA) {
+          this.elev[f] += island.elevation[i];
+          land[f]++;
+        }
       }
     }
     for (let i = 0; i < n; i++) {
       this.cap[i] = (this.cap[i] / count[i]) * fertility;
       this.veg[i] = this.cap[i] * 0.8;
+      this.elev[i] = land[i] ? this.elev[i] / land[i] : 0;
     }
   }
 
@@ -123,13 +131,15 @@ export class Vegetation {
     }
   }
 
-  // 気温で成長速度が決まる（ロジスティック成長）。0℃ 以下では育たない。
-  grow(temperature, drought) {
-    const r = 0.45 * Math.max(0, Math.min(1, temperature / 16)) * (drought ? 0.25 : 1);
-    if (r === 0) return;
+  // その場所の気温で成長速度が決まる（ロジスティック成長）。0℃ 以下（雪の下）では育たない。
+  // localTemp(標高) は標高が高いほど寒い。
+  grow(localTemp, drought) {
+    const dk = drought ? 0.25 : 1;
     for (let i = 0; i < this.veg.length; i++) {
       const K = this.cap[i];
       if (K <= 0) continue;
+      const r = 0.45 * Math.max(0, Math.min(1, localTemp(this.elev[i]) / 16)) * dk;
+      if (r === 0) continue;
       const v = this.veg[i];
       this.veg[i] = Math.min(K, v + r * v * (1 - v / K));
     }
@@ -156,7 +166,7 @@ export function groundAt(world, x, y) {
 export function groundOfCell(world, i) {
   const island = world.island;
   const t = island.terrain[i];
-  if (t !== TERRAIN.BEACH && t !== TERRAIN.SEA && island.elevation[i] > world.snowLine) return GROUND_RGB.snow;
+  if (t !== TERRAIN.BEACH && t !== TERRAIN.SEA && world.localTemp(island.elevation[i]) < 0) return GROUND_RGB.snow;
   if (t === TERRAIN.BEACH) return GROUND_RGB.sand;
   if (t === TERRAIN.ROCK) return GROUND_RGB.rock;
   const frac = world.vegetation.smoothFraction(i);
@@ -170,6 +180,7 @@ export const PREDATOR = {
   killsPerBirth: 12, // これだけ食べると 1 匹増える
   mortality: 0.033, // 1 か月あたりの自然死亡率
   immigrationChance: 0.04, // 島にいないとき、1 年あたりに渡ってくる確率
+  interference: 12, // 捕食者どうしの干渉：この数の捕食者がいると、1 匹あたりの狩りの効率が半分近くに落ちる（縄張り争い）
 };
 
 // 各獲物の 1 か月の被食確率を計算する。
@@ -184,7 +195,9 @@ export function predationHazards(predators, detect, colors, k) {
     byColor[colors[i]] = (byColor[colors[i]] || 0) + detect[i];
     D += detect[i];
   }
-  const expectedKills = Math.min(n * 0.5, (predators * PREDATOR.maxKillsPerMonth * D) / (D + PREDATOR.halfSaturation));
+  // 捕食者が混み合うほど 1 匹あたりの狩りの効率が落ちる（Beddington–DeAngelis 型）
+  const crowd = 1 + predators / PREDATOR.interference;
+  const expectedKills = Math.min(n * 0.5, (predators * PREDATOR.maxKillsPerMonth * D) / (D + PREDATOR.halfSaturation * crowd));
   let norm = 0;
   for (const c in byColor) norm += Math.pow(byColor[c], k);
   for (let i = 0; i < n; i++) {

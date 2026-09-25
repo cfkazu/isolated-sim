@@ -47,6 +47,9 @@ const MT_MUTATION_RATE = 1 / 40;
 // 分家の芽が、生きている個体がこの数に育ったら家として名前を付ける
 const BRANCH_NAMED_AT = 10;
 
+// 超寒冷期の気温の下がり幅（℃）。冬は島じゅうが、夏でも山の上は雪に閉ざされる（これ以上寒いとほぼ確実に絶滅する）
+const SUPER_COLD_OFFSET = -14;
+
 // 1 か月に必要な草の量（体格 1 あたり。幼体は半分）
 const FOOD_NEED = 0.08;
 // 性選択：好みが最大（1）のメスにとって、飾りが最大のオスは飾りのないオスの何倍魅力的か、から 1 を引いた値
@@ -236,8 +239,28 @@ export class World {
   _updateEnvironment() {
     const m = this.month;
     this.currentTemp = 14 + this.climateOffset + this.yearNoise - 10 * Math.cos((2 * Math.PI * m) / 12);
-    // 雪線：これより標高が高い場所は雪に覆われる
+    // 雪線：これより標高が高い場所は雪に覆われる（localTemp が 0℃ 未満になる標高）
     this.snowLine = 0.35 + this.currentTemp / 20;
+    this.snowCover = this._snowCover();
+  }
+
+  // その場所の気温：海沿いは暖かく、山の上ほど寒い（標高 0 で +7℃、標高 1 で -13℃）
+  localTemp(elevation) {
+    return this.currentTemp + 7 - 20 * elevation;
+  }
+
+  // 砂浜以外の陸地のうち、雪に覆われている割合
+  _snowCover() {
+    const { terrain, elevation } = this.island;
+    let snow = 0;
+    let land = 0;
+    for (let i = 0; i < terrain.length; i++) {
+      const t = terrain[i];
+      if (t === TERRAIN.SEA || t === TERRAIN.BEACH) continue;
+      land++;
+      if (elevation[i] > this.snowLine) snow++;
+    }
+    return land ? snow / land : 0;
   }
 
   isSnowAt(x, y) {
@@ -309,7 +332,7 @@ export class World {
     const o = this.opts;
     const maxAge = o.maxAgeYears * 12;
 
-    this.vegetation.grow(T, this.famineMonths > 0);
+    this.vegetation.grow((e) => this.localTemp(e), this.famineMonths > 0);
     this._feed();
     const epidemic = this.epidemicMonths > 0;
 
@@ -343,9 +366,8 @@ export class World {
       h[0] = 0.6 * starving * starving * (c.age < 12 ? 1.5 : 1);
       h[1] = predHazard[i];
       // 気候：毛皮と体格で最適温度が変わる（ベルクマンの法則）
-      // 代謝が速いほど体温を作れるので寒さに強い
-      const topt = 22 - 22 * ph.fur - 8 * (ph.size - 1) - 15 * (ph.metabolism - 1);
-      const excess = Math.max(0, Math.abs(T - topt) - 9);
+      // いる場所の気温で寒さ・暑さを感じる（山の上は寒く、海辺は暖かい）
+      const excess = this._thermalStress(ph, this.island.elevationAt(c.x, c.y));
       h[2] = 0.0022 * Math.pow(excess, 1.4);
       // 病気：免疫型（超優性）
       const vuln = 1 - ph.resistance;
@@ -366,6 +388,7 @@ export class World {
       this._move(c);
     }
     this._updatePredators(kills);
+    this.snowSum = (this.snowSum ?? 0) + this.snowCover;
 
     if (BREEDING_MONTHS.has(this.month)) this._breed();
 
@@ -391,16 +414,29 @@ export class World {
     }
   }
 
+  // 快適な気温：毛皮が厚く、体が大きく、代謝が速いほど寒さに強い（最適温度が下がる）
+  _optimalTemp(ph) {
+    return 22 - 22 * ph.fur - 8 * (ph.size - 1) - 15 * (ph.metabolism - 1);
+  }
+
+  // 標高 elevation の場所での寒さ・暑さのつらさ（快適な範囲 ±9℃ を超えた分）
+  _thermalStress(ph, elevation) {
+    return Math.max(0, Math.abs(this.localTemp(elevation) - this._optimalTemp(ph)) - 9);
+  }
+
   _move(c) {
-    // お腹が空いていれば、隣接する草のマスのうち「草の量 ÷ (先客 + 1)」が一番大きい方へ移る（採餌）
-    if (c.hunger > 0.05 && c.age >= 6) {
+    // お腹が空いている・寒すぎる（暑すぎる）ときは、隣の草のマスの中から
+    // 「草の量 ÷ (先客 + 1)」を「気温のつらさ」で割り引いた値が一番よい方へ移る（採餌と、山を下りる／登る）
+    const stressHere = this._thermalStress(c.pheno, this.island.elevationAt(c.x, c.y));
+    if ((c.hunger > 0.05 || stressHere > 0) && c.age >= 6) {
       const veg = this.vegetation;
       const here = veg.cellAt(c.x, c.y);
       const hx = here % veg.FW;
       const hy = (here - hx) / veg.FW;
       const occ = this._cellCount;
+      const score = (food, stress) => food / (1 + 0.25 * stress);
       let best = null;
-      let bestScore = veg.edible(here) / (occ ? occ[here] : 1);
+      let bestScore = score(veg.edible(here) / (occ ? occ[here] : 1), stressHere);
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           if (!dx && !dy) continue;
@@ -408,12 +444,12 @@ export class World {
           const fy = hy + dy;
           if (fx < 0 || fy < 0 || fx >= veg.FW || fy >= veg.FH) continue;
           const f = fy * veg.FW + fx;
-          const score = veg.edible(f) / ((occ ? occ[f] : 0) + 1);
-          if (score <= bestScore) continue;
           const nx = (fx + this.rng.next()) / veg.FW;
           const ny = (fy + this.rng.next()) / veg.FH;
           if (!this.island.isLand(nx, ny)) continue;
-          bestScore = score;
+          const sc = score(veg.edible(f) / ((occ ? occ[f] : 0) + 1), this._thermalStress(c.pheno, this.island.elevationAt(nx, ny)));
+          if (sc <= bestScore) continue;
+          bestScore = sc;
           best = [nx, ny, f];
         }
       }
@@ -526,6 +562,7 @@ export class World {
 
   _endYear() {
     this._recordYear();
+    this.snowSum = 0;
     this._startCohort();
     this._milestones();
     this._clanEvents();
@@ -537,11 +574,12 @@ export class World {
       this.coldEraYears--;
       if (this.coldEraYears === 0) {
         this.climateTarget = 0;
-        this.addLog('☀️ 寒冷期が終わり、気候が戻りはじめた。', 'event');
+        this.addLog(this.superCold ? '☀️ 超寒冷期が終わり、雪がゆっくり退きはじめた。' : '☀️ 寒冷期が終わり、気候が戻りはじめた。', 'event');
+        this.superCold = false;
       }
     }
     const d = this.climateTarget - this.climateOffset;
-    this.climateOffset += Math.sign(d) * Math.min(Math.abs(d), 1.5);
+    this.climateOffset += Math.sign(d) * Math.min(Math.abs(d), this.climateRate ?? 1.5);
     this.yearNoise = this.rng.normal() * 1.2;
 
     this.pedigree.prune(this.tick - this.opts.pedigreeYears * 12);
@@ -691,6 +729,7 @@ export class World {
     if (r.chance(0.06)) this.triggerEpidemic();
     if (r.chance(0.05)) this.triggerFamine();
     if (this.coldEraYears === 0 && r.chance(0.012)) this.triggerColdEra();
+    else if (this.coldEraYears === 0 && r.chance(0.0015)) this.triggerSuperColdEra();
     if (r.chance(0.015)) this.triggerStorm();
     if (this.predators === 0 && r.chance(PREDATOR.immigrationChance)) {
       this.predators = 2;
@@ -713,7 +752,18 @@ export class World {
     this.addLog('🥀 干ばつの年。草がほとんど育たない（大きな個体ほど苦しい）。', 'event');
   }
 
+  // 超寒冷期：夏でも島の大半が雪に覆われる。暖かい海辺だけがわずかに残る避難所になる
+  triggerSuperColdEra() {
+    this.coldEraYears = 15 + this.rng.int(20);
+    this.climateTarget = SUPER_COLD_OFFSET;
+    this.climateRate = 4;
+    this.superCold = true;
+    this.addLog(`🧊 超寒冷期に突入（約${this.coldEraYears}年）。夏でも島の大半が雪に閉ざされる。生き延びられるのは海辺の暖かい場所だけ…`, 'bad');
+  }
+
   triggerColdEra() {
+    this.superCold = false;
+    this.climateRate = 1.5;
     this.coldEraYears = 25 + this.rng.int(40);
     this.climateTarget = -8;
     this.addLog(`❄️ 寒冷期に突入（約${this.coldEraYears}年）。島が雪に覆われていく…`, 'event');
@@ -794,6 +844,7 @@ export class World {
       freqs: Object.fromEntries(Object.entries(freqs).map(([k, v]) => [k, v.freq])),
       pheno,
       climate: this.climateOffset,
+      snow: this.snowSum != null ? this.snowSum / 12 : this.snowCover,
       sexsel: sexualSelectionStats(cs),
       selection: this.history.length ? selectionStats(this.cohort, this.cohortTick, this.opts.maturityMonths) : null,
       ...this._founderRecord(cs),

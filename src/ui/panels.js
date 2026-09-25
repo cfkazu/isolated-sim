@@ -23,6 +23,7 @@ import {
   mergeSelection,
   survivalRows,
   selectionSummary,
+  mendelianSummary,
   SELECTION_T,
 } from '../stats.js';
 import { DEATH_CAUSES, DEFAULTS, tailDisplay, glowDisplay } from '../world.js';
@@ -146,44 +147,92 @@ export function renderCreaturePanel(el, world, c, pinned) {
       <dt>父</dt><dd>${c.founder ? '（創始者）' : who(father)}</dd>
       <dt>母</dt><dd>${c.founder ? '（創始者）' : who(mother)}</dd>
     </dl>
-    ${c.genome ? `<h3>量的形質のまとめ（複数の遺伝子座の合計）</h3>${polygenicTable(c)}` : ''}
-    <h3>遺伝子型</h3>
+    <h3>遺伝子の要約</h3>
     ${
       c.genome
-        ? `<table>
+        ? `${geneCards(c)}
+    <details class="full-genes"><summary>全遺伝子座の一覧（染色体順・${LOCI.length} 座）</summary>
+    <table>
       <thead><tr><th>遺伝子座</th><th>遺伝子型</th><th>効果</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table>
-    <p class="muted small">遺伝子型は「母由来/父由来」ではなく、優性の対立遺伝子を先に表記しています。オスの X 連鎖遺伝子は「/Y」。</p>`
+    <p class="muted small">遺伝子型は「母由来/父由来」ではなく、優性の対立遺伝子を先に表記しています。オスの X 連鎖遺伝子は「/Y」。</p>
+    </details>`
         : `<p class="muted small">${world.opts.pedigreeYears} 年以上前の個体なので、遺伝子の記録は残っていません（見た目と家系だけが残っています）。</p>`
     }
   `;
   drawCreature(el.querySelector('#portrait'), c, 160, 104);
 }
 
-// 量的形質ごとに「＋」がいくつあるか、それがどんな値として表に出ているかをまとめる
-function polygenicTable(c) {
+// 個体の遺伝子を、見た目・健康・量的形質のカードにまとめる。
+// 対立遺伝子のチップは、表に出ていない（隠れている）ものを点線で示す。
+function geneCards(c) {
+  const g = c.genome;
   const ph = c.pheno;
-  const shown = (t, text) => {
-    if (t.sex && t.sex !== c.sex) return `<span class="muted">${t.sex === 'M' ? 'オス' : 'メス'}だけに現れる（この個体は運ぶだけ）</span>`;
-    return text;
+  const male = c.sex === 'M';
+  const al = (key) => {
+    const i = LOCI.findIndex((l) => l.key === key);
+    return [g.m[i], g.p[i]];
   };
-  const effect = {
-    size: (t) => shown(t, `遺伝的には ${(0.7 + 0.6 * t.value).toFixed(2)}、実際は ${ph.size.toFixed(2)}（栄養など環境の影響も受ける）`),
-    fur: (t) => shown(t, `毛皮 ${pct(t.value)}`),
-    metab: (t) => shown(t, `代謝 ${ph.metabolism.toFixed(2)}（0.8〜1.2）`),
-    tail: (t) => shown(t, `尾 ${pct(t.value)}（見栄えは栄養状態しだいで ${pct(tailDisplay(c))}）`),
-    prefTail: (t) => shown(t, `長い尾を好む強さ ${pct(t.value)}`),
-    prefGlow: (t) => shown(t, `発光を好む強さ ${pct(t.value)}`),
+  const chip = (a, hidden, label) => `<span class="gchip${hidden ? ' hidden' : ''}" title="${hidden ? '表に出ていない' : '表に出ている'}">${a ?? 'Y'}${label ? ` ${label}` : ''}</span>`;
+  const chips = (key, isHidden) => {
+    const locus = LOCI.find((l) => l.key === key);
+    return `<div class="gchips">${al(key)
+      .map((a) => chip(a, a != null && isHidden(a), a == null ? '' : locus.labels?.[a]))
+      .join('')}</div>`;
   };
-  return `<table><thead><tr><th>形質</th><th>＋の数</th><th>合計</th><th>表に出る値</th></tr></thead><tbody>${polygenicSummary(c.genome)
-    .map(
-      (t) => `<tr><td>${t.label}<div class="muted small">${t.loci.length} 座</div></td>
-        <td class="genotype">${t.plus} / ${t.copies}</td>
-        <td><div class="bars"><div class="track"><div class="fill" style="width:${t.value * 100}%"></div></div></div>${pct(t.value)}</td>
-        <td class="small">${effect[t.trait](t)}</td></tr>`,
-    )
-    .join('')}</tbody></table>`;
+  const card = (title, value, chipHtml, note = '', tag = '') =>
+    `<div class="gcard"><div class="gtitle">${title}${tag ? `<span class="gtag">${tag}</span>` : ''}</div><div class="gvalue">${value}</div>${chipHtml}${
+      note ? `<div class="gnote">${note}</div>` : ''
+    }</div>`;
+
+  const colorLetter = { black: 'K', green: 'G', white: 'w' }[ph.color];
+  const [p1, p2] = al('PAT');
+  const glowAl = al('GLW');
+  const hetVit = ph.resistance > 0.8;
+  const dl = ['DL1', 'DL2', 'DL3'];
+  const dCount = dl.filter((k) => al(k).includes('d')).length;
+
+  const looks = [
+    card('体色', COLOR_LABEL[ph.color], chips('COL', (a) => a !== colorLetter), ph.color !== 'white' && al('COL').includes('w') ? '白の遺伝子 w を隠し持つ' : '', '優劣序列'),
+    card('模様', PATTERN_LABEL[ph.pattern], chips('PAT', (a) => a === 'o' && (p1 !== 'o' || p2 !== 'o')), ph.pattern === 'both' ? '斑点と縞の両方が出る（共優性）' : '', '共優性'),
+    card('耳の形', EAR_LABEL[ph.ear], chips('EAR', () => false), '中立な形質', '不完全優性'),
+    card(
+      '発光',
+      ph.glow ? '発光する' : '発光しない',
+      chips('GLW', (a) => !ph.glow && a === 'g'),
+      !male && !ph.glow && glowAl.includes('g') ? '保因者：息子の半分が発光する' : male ? 'オスの X は母から。息子には伝わらない' : '',
+      '伴性',
+    ),
+  ];
+  const health = [
+    card('免疫型', hetVit ? 'A/B（強い）' : ph.resistance > 0.5 ? 'A/A' : 'B/B', chips('VIT', () => false), hetVit ? 'ヘテロなので病気に最も強い' : '', '超優性'),
+    card('致死因子', '健康', chips('LET', (a) => a === 'l'), al('LET').includes('l') ? '保因者：同じ保因者との子の 1/4 は生まれない' : '', '劣性致死'),
+    card(
+      '有害因子（3 座）',
+      ph.load ? `発症 ×${ph.load}` : dCount ? '健康（保因者）' : '健康',
+      `<div class="gchips">${dl.map((k) => al(k).map((a) => chip(a, a === 'd' && !(al(k)[0] === 'd' && al(k)[1] === 'd'))).join('')).join('<span class="muted"> · </span>')}</div>`,
+      ph.load ? 'd/d の座があり体が弱い' : dCount ? `${dCount} 座で d を隠し持つ` : '',
+      '劣性有害',
+    ),
+  ];
+  const expressedValue = {
+    size: () => `体格 ${ph.size.toFixed(2)}`,
+    fur: (t) => `毛皮 ${pct(t.value)}`,
+    metab: () => `代謝 ${ph.metabolism.toFixed(2)}`,
+    tail: (t) => `尾 ${pct(t.value)}・見栄え ${pct(tailDisplay(c))}`,
+    prefTail: (t) => `強さ ${pct(t.value)}`,
+    prefGlow: (t) => `強さ ${pct(t.value)}`,
+  };
+  const poly = polygenicSummary(g).map((t) => {
+    const silent = t.sex && t.sex !== c.sex;
+    return `<div class="gcard"><div class="gtitle">${t.label}<span class="gtag">＋${t.plus}/${t.copies}</span></div>
+      <div class="sbar thin"><span style="flex-grow:${t.value};background:var(--series-1)"></span><span style="flex-grow:${1 - t.value};background:var(--grid)"></span></div>
+      <div class="gnote">${silent ? `<span class="muted">${t.sex === 'M' ? 'オス' : 'メス'}だけに現れる（遺伝子 ${pct(t.value)} を運ぶだけ）</span>` : expressedValue[t.trait](t)}</div></div>`;
+  });
+  return `<div class="gsum">${looks.join('')}</div>
+    <div class="gsum">${health.join('')}</div>
+    <div class="gsum">${poly.join('')}</div>`;
 }
 
 function renderPrediction(world, mother, father) {
@@ -427,19 +476,34 @@ export class StatsPanel {
 
 // ───────────────────────── 遺伝子頻度 ─────────────────────────
 
+// 割合の帯グラフ。segments: [{ label, value(0〜1), color(CSS 変数名) }]。凡例は常に文字で添える
+function stackBar(segments, big) {
+  const shown = segments.filter((x) => x.value > 0.0005);
+  return `<div class="sbar${big ? '' : ' thin'}">${shown
+    .map((x) => `<span style="flex-grow:${x.value};background:var(${x.color})" title="${x.label} ${pct(x.value)}"></span>`)
+    .join('')}</div>
+    <div class="slegend">${segments
+      .map((x) => `<span class="${x.value > 0.0005 ? '' : 'zero'}"><i style="background:var(${x.color})"></i>${x.label} ${pct(x.value)}</span>`)
+      .join('')}</div>`;
+}
+
 export class GenesPanel {
   constructor(el) {
     this.el = el;
     this.key = 'COL';
     el.innerHTML = `
+      <h2>いまの島の遺伝子</h2>
+      <p class="small muted">上の帯は見た目の割合、下の細い帯は対立遺伝子の割合。カードを押すと、その遺伝子の歴史が下に出ます。</p>
+      <div id="gene-summary" class="gsum"></div>
+      <h3>量的形質（複数の遺伝子座の合計）</h3>
+      <p class="small muted">全遺伝子座を合わせた「＋」の数ごとの個体数。左端が＋0（最も小さい・短い・弱い）、右端がすべて＋。</p>
+      <div id="poly-traits" class="gsum"></div>
+      <h2 id="gene-detail" style="margin-top:22px">遺伝子座ごとの詳細</h2>
       <label>遺伝子座 <select id="locus-select">${LOCI.map((l) => `<option value="${l.key}">${l.name}（${INHERITANCE[l.mode].short}）</option>`).join('')}</select></label>
       <p id="locus-desc" class="small muted"></p>
       <div id="locus-chart"></div>
       <h3>遺伝子型：観測数とハーディー・ワインベルグ期待数</h3>
       <div id="hw-table"></div>
-      <h3>量的形質（複数の遺伝子座の合計）の分布（現在）</h3>
-      <p class="small muted">全遺伝子座を合わせた「＋」の数で個体を数えた分布。左端が＋0（最も小さい・短い・弱い）、右端がすべて＋。</p>
-      <div id="poly-traits"></div>
       <h3>全遺伝子座の対立遺伝子頻度（現在）</h3>
       <div id="all-loci"></div>`;
     this.chart = new Chart(el.querySelector('#locus-chart'), {
@@ -458,7 +522,7 @@ export class GenesPanel {
       this.key = b.dataset.locus;
       el.querySelector('#locus-select').value = this.key;
       this.update(this.world);
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.querySelector('#gene-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
 
@@ -488,8 +552,21 @@ export class GenesPanel {
     // 量的形質の分布：「＋」の数ごと（0〜遺伝子座数×2）に個体を数える
     const alive = world.creatures.filter((c) => c.genome);
     const sums = alive.map((c) => polygenicSummary(c.genome));
+    this.el.querySelector('#gene-summary').innerHTML = alive.length
+      ? mendelianSummary(alive, freqs)
+          .map(
+            (card) => `<button type="button" class="gcard" data-locus="${card.key}">
+              <div class="gtitle">${card.title}</div>
+              ${stackBar(card.segments, true)}
+              <div class="gallele">${stackBar(card.alleles, false)}</div>
+              <div class="gnote">${card.note}</div>
+            </button>`,
+          )
+          .join('')
+      : '<p class="muted small">生きている個体がいません。</p>';
+
     this.el.querySelector('#poly-traits').innerHTML = alive.length
-      ? `<table><thead><tr><th>形質</th><th class="num">平均</th><th>分布</th></tr></thead><tbody>${POLYGENIC_TRAITS.map((t, ti) => {
+      ? `${POLYGENIC_TRAITS.map((t, ti) => {
           const bins = t.loci.length * 2 + 1;
           const hist = new Array(bins).fill(0);
           let sum = 0;
@@ -500,9 +577,12 @@ export class GenesPanel {
           }
           const max = Math.max(1, ...hist);
           const who = t.sex ? `（${t.sex === 'M' ? 'オス' : 'メス'}に現れる）` : '';
-          return `<tr><td>${t.label}<div class="muted small">${t.loci.length} 座${who}</div></td><td class="num">${pct(sum / alive.length)}</td>
-            <td><div class="hist">${hist.map((n, k) => `<span style="height:${(n / max) * 100}%" title="＋${k}：${n} 匹"></span>`).join('')}</div></td></tr>`;
-        }).join('')}</tbody></table>`
+          return `<button type="button" class="gcard" data-locus="${t.loci[0]}">
+            <div class="gtitle">${t.label} <span class="gmean">平均 ${pct(sum / alive.length)}</span></div>
+            <div class="hist">${hist.map((n, k) => `<span style="height:${(n / max) * 100}%" title="＋${k}：${n} 匹"></span>`).join('')}</div>
+            <div class="gnote">${t.loci.length} 座の合計${who}</div>
+          </button>`;
+        }).join('')}`
       : '';
 
     this.el.querySelector('#all-loci').innerHTML = `<table><thead><tr><th>遺伝子座</th><th>頻度</th><th></th></tr></thead><tbody>${LOCI.map((l) => {

@@ -926,3 +926,131 @@ td .bars .track {
   background: var(--series-1);
   border-radius: 2px 2px 0 0;
 }
+
+/* ───── 遺伝子のサマリー ───── */
+.gsum {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.gcard {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.gcard:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+div.gcard {
+  cursor: default;
+}
+
+.gtitle {
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.gmean,
+.gtag {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.gvalue {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.gnote {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.sbar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sbar.thin {
+  height: 6px;
+}
+
+.sbar span {
+  min-width: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.slegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px 9px;
+  font-size: 11px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.gallele .slegend {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.slegend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 3px;
+  vertical-align: 0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.slegend .zero {
+  opacity: 0.45;
+}
+
+.gchips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.gchip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.gchip.hidden {
+  border-style: dashed;
+  color: var(--text-3);
+}
+
+details.full-genes summary {
+  cursor: pointer;
+  color: var(--accent);
+  margin: 14px 0 6px;
+  font-size: 13px;
+}
