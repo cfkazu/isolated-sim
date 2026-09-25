@@ -591,14 +591,43 @@ export class World {
       const h = this.establishedHaplo(c.mt);
       count.set(h.id, (count.get(h.id) || 0) + 1);
     }
+    // 分家まで含めた血筋の数（分家が生きていれば、その家の血筋は途絶えていない）
+    const lineage = new Map();
+    for (const [id, n] of count) {
+      for (let h = this.haplos.get(id); h; h = this.haplos.get(h.parent)) lineage.set(h.id, (lineage.get(h.id) || 0) + n);
+    }
     for (const [id, n] of count) {
       const p = this.clanPeak.get(id);
-      if (!p || n > p.peak) this.clanPeak.set(id, { peak: n, year: this.year });
+      if (!p) this.clanPeak.set(id, { peak: n, year: this.year });
+      else if (n > p.peak) Object.assign(p, { peak: n, year: this.year });
     }
     for (const [id, p] of this.clanPeak) {
-      if (count.has(id) || p.gone) continue;
+      if (count.has(id)) continue;
+      const rest = lineage.get(id) || 0;
+      if (rest > 0) {
+        // 本家筋（分家していない者）はいなくなったが、分家が血筋をつないでいる
+        if (!p.mainGone) {
+          p.mainGone = true;
+          if (p.peak >= 20) {
+            const heirs = [...count.keys()]
+              .filter((c) => {
+                for (let h = this.haplos.get(c); h; h = this.haplos.get(h.parent)) if (h.parent === id) return true;
+                return false;
+              })
+              .sort((x, y) => count.get(y) - count.get(x))
+              .slice(0, 2)
+              .map((c) => this.clanOf(c));
+            this.addLog(`🍂 ${this.clanOf(id)}の本家筋が絶えた。血筋は分家の${heirs.join('・')}に続いている（最盛期は ${p.year} 年目の ${p.peak} 匹）。`, 'gene');
+          }
+        }
+        continue;
+      }
+      if (p.gone) continue;
       p.gone = true;
-      if (p.peak >= 20) this.addLog(`🕯️ ${this.clanOf(id)}が途絶えた（最盛期は ${p.year} 年目の ${p.peak} 匹）。`, 'gene');
+      if (p.peak >= 20) {
+        const hadBranch = p.mainGone || [...this.haplos.values()].some((h) => h.established && h.parent === id);
+        this.addLog(`🕯️ ${this.clanOf(id)}が${hadBranch ? '分家も含めて' : ''}途絶えた（最盛期は ${p.year} 年目の ${p.peak} 匹）。`, 'gene');
+      }
     }
     // 大本の家（創始者の系統）が 1 つだけになったら、その創始者がこの島の「ミトコンドリア・イブ」
     const roots = new Set([...count.keys()].map((id) => this.haplos.get(id).root));
