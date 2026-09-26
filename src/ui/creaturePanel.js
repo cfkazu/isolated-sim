@@ -197,6 +197,13 @@ function geneCards(c) {
       `<span class="muted small">${'ABC'[i]}</span>${pair.map((k) => al(k).map((a) => chip(a == null ? null : a === 'n' ? (LOCUS[k].side === 0 ? '東' : '西') : 'o')).join('')).join('')}`,
   ).join('<span class="muted"> · </span>');
   const fert = ph.fertility ?? 1;
+  const alarmCard = card(
+    '警戒声',
+    ph.alarm === 1 ? 'いつも鳴く' : ph.alarm > 0 ? 'ときどき鳴く' : '鳴かない',
+    chips('ALM', () => false),
+    ph.alarm > 0 ? '捕食者に気づくと鳴いて周りを隠れさせる（自分は狙われやすい）' : '',
+    '社会行動',
+  );
   const health = [
     card('免疫型', hetVit ? 'A/B（強い）' : ph.resistance > 0.5 ? 'A/A' : 'B/B', chips('VIT', () => false), hetVit ? 'ヘテロなので病気に最も強い' : '', '超優性'),
     card('致死因子', '健康', chips('LET', (a) => a === 'l'), al('LET').includes('l') ? '保因者：同じ保因者との子の 1/4 は生まれない' : '', '劣性致死'),
@@ -231,7 +238,7 @@ function geneCards(c) {
       <div class="sbar thin"><span style="flex-grow:${t.value};background:var(--series-1)"></span><span style="flex-grow:${1 - t.value};background:var(--grid)"></span></div>
       <div class="gnote">${silent ? `<span class="muted">${t.sex === 'M' ? 'オス' : 'メス'}だけに現れる（遺伝子 ${pct(t.value)} を運ぶだけ）</span>` : expressedValue[t.trait](t)}</div></div>`;
   });
-  return `<div class="gsum">${looks.join('')}</div>
+  return `<div class="gsum">${looks.join('')}${alarmCard}</div>
     <div class="gsum">${health.join('')}</div>
     <div class="gsum">${poly.join('')}</div>`;
 }

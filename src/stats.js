@@ -176,6 +176,12 @@ export const SELECTION_TRAITS = {
     names: { yes: '冬に白くなる', no: '一年中同じ' },
     of: (c) => (c.pheno.molt ? 'yes' : 'no'),
   },
+  alarm: {
+    label: '警戒声',
+    classes: ['always', 'half', 'never'],
+    names: { always: 'いつも鳴く（V/V）', half: 'ときどき鳴く（V/v）', never: '鳴かない（v/v）' },
+    of: (c) => (c.pheno.alarm === 1 ? 'always' : c.pheno.alarm > 0 ? 'half' : 'never'),
+  },
   glow: {
     label: '発光（オス）',
     male: true,
@@ -370,6 +376,20 @@ export function mendelianSummary(creatures, freqs = alleleFrequencies(creatures)
     ],
     alleles: alleles('ALB', ['--grid', '--body-albino']),
     note: `アルビノ ${pctText(albino / n)}。c/c になると体色の遺伝子が何であっても色が抜ける（エピスタシス）。ほかに ${pctText(cCarrier / n)} が c を隠し持つ。`,
+  });
+
+  const vv = count((c) => c.pheno.alarm === 1);
+  const vh = count((c) => c.pheno.alarm === 0.5);
+  cards.push({
+    key: 'ALM',
+    title: '警戒声',
+    segments: [
+      { label: 'いつも鳴く', value: vv / n, color: '--series-1' },
+      { label: 'ときどき', value: vh / n, color: '--series-3' },
+      { label: '鳴かない', value: (n - vv - vh) / n, color: '--grid' },
+    ],
+    alleles: alleles('ALM', ['--series-1', '--grid']),
+    note: '鳴くと本人は狙われやすく、周りは隠れて助かる。周りに親族が多いほど、遺伝子としては得になる。ただし近くで誰かが鳴けば十分なので、鳴く個体が多すぎると損が目立つ。',
   });
 
   const molt = count((c) => c.pheno.molt);
@@ -605,6 +625,7 @@ const CLAN_ALLELES = [
   ['MLT', 'W', '換毛の遺伝子 W'],
   ['ALB', 'c', 'アルビノの遺伝子 c'],
   ['VIT', 'A', '免疫 A 型'],
+  ['ALM', 'V', '鳴く遺伝子 V'],
   ['LET', 'l', '致死因子 l'],
   ['EAR', 'U', '立ち耳 U（中立）'],
 ];

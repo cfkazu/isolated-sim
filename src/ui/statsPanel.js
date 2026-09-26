@@ -99,6 +99,16 @@ export class StatsPanel {
         { label: 'メス', color: '--series-2' },
       ],
     });
+    this.alarm = new Chart(host, {
+      title: '警戒声と血縁',
+      desc: '鳴く遺伝子 V の割合と、鳴いた個体と声を聞いて隠れた個体との血縁度 r（きょうだい・親子は 0.5）。島の中の無作為な 2 匹の血縁度より高ければ、声は主に親族を助けている。',
+      format: (v) => v.toFixed(2),
+      series: [
+        { label: '鳴く遺伝子 V の割合', color: '--series-1' },
+        { label: 'r：鳴いた個体と聞いた個体', color: '--series-2' },
+        { label: 'r：無作為な 2 匹', color: '--grid' },
+      ],
+    });
     this.pred = new Chart(host, {
       title: '捕食者の数',
       desc: '獲物が増えると捕食者が増え、食べ尽くすと飢えて減る。0 になると島から消える（まれに海を越えて渡ってくる）。',
@@ -141,6 +151,7 @@ export class StatsPanel {
       H.map((h) => h.metabolism ?? 1),
     ]);
     this.pred.setData(xs, [H.map((h) => h.predators ?? 0)]);
+    this.alarm.setData(xs, [H.map((h) => h.freqs.ALM?.V ?? 0), H.map((h) => h.alarm?.r ?? null), H.map((h) => h.alarm?.rRandom ?? null)]);
     this.disp.setData(xs, [H.map((h) => (h.dispersal?.geneM ?? 0) * 0.3), H.map((h) => (h.dispersal?.geneF ?? 0) * 0.3)]);
     this.founders.setData(xs, [H.map((h) => h.founderLines ?? 0)]);
     const isl = islandStats(world.creatures, world.island);
@@ -236,6 +247,6 @@ export class StatsPanel {
   }
 
   redraw() {
-    for (const c of [this.climate, this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.disp, this.founders, this.births]) c.draw();
+    for (const c of [this.climate, this.pop, this.div, this.color, this.traits, this.sexsel, this.corr, this.pred, this.alarm, this.disp, this.founders, this.births]) c.draw();
   }
 }

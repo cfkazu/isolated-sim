@@ -49,6 +49,11 @@ export const INHERITANCE = {
     short: '可塑性',
     desc: '換毛の遺伝子 W を持つと、冬（12〜2 月）だけ白い毛に生え変わる（W は優性）。生え変わる時期は日の長さで決まるので、雪があるかどうかは関係ない。雪の多い山や寒い時代には保護色になるが、雪のない海辺や暖かい時代には、白い冬毛が緑の地面で目立ってしまう（ユキウサギと同じ）。',
   },
+  social: {
+    label: '社会行動（血縁選択）',
+    short: '社会行動',
+    desc: '警戒声の遺伝子 V を持つ大人は、捕食者に気づくと鳴いて周りに知らせる（V/V はいつも、V/v は半分の確率で）。鳴いた本人は目立って狙われやすくなり、周りの個体は隠れて助かる。本人には損な遺伝子だが、助かった周りの個体が同じ遺伝子を持つ親族なら、遺伝子としては得をして広まりうる（ハミルトンの規則：血縁度 × 相手の得 ＞ 自分の損）。親族かどうかは規則として書いていない。',
+  },
   lethal: {
     label: '劣性致死',
     short: '劣性致死',
@@ -162,6 +167,16 @@ export const LOCI = [
   poly('MB1', 'C1', 95, 'metab', 1),
   limited('DM1', 'C1', 52, 'dispM', 'オスの旅立ち1', 0.3),
   limited('DF1', 'C1', 88, 'dispF', 'メスの旅立ち1', 0.3),
+  {
+    key: 'ALM',
+    chr: 'C1',
+    pos: 102,
+    name: '警戒声',
+    mode: 'social',
+    alleles: ['V', 'v'],
+    freq: [0.3, 0.7],
+    labels: { V: '鳴く', v: '鳴かない' },
+  },
   del('DL1', 'C1', 110, 1),
   dmi('HA1', 'C1', 70, '不和合A-1', 0),
   dmi('HC1', 'C1', 20, '不和合C-1', 0),
@@ -459,6 +474,8 @@ export function express(genome) {
   const albino = allelesAt(genome, 'ALB').every((a) => a === 'c');
   // 換毛：W を持つと冬だけ白い毛になる
   const molt = allelesAt(genome, 'MLT').includes('W');
+  // 警戒声：捕食者に気づいたとき鳴く確率（V の数に比例：0・0.5・1）
+  const alarm = countOf(genome, INDEX.ALM, 'V') / 2;
   // 大人になるときに旅立つ距離（0〜1）。オスとメスで別々の遺伝子座
   const dispMGene = polyValue(genome, DISP_M_KEYS);
   const dispFGene = polyValue(genome, DISP_F_KEYS);
@@ -470,6 +487,7 @@ export function express(genome) {
     fertility,
     albino,
     molt,
+    alarm,
     dispMGene,
     dispFGene,
     dispersal: male ? dispMGene : dispFGene,
@@ -541,6 +559,8 @@ export function locusEffect(key, genome, pheno) {
       return pheno.albino ? 'アルビノ（体色・模様を覆い隠す）' : het ? '色あり（アルビノの保因者）' : '色あり';
     case 'plastic':
       return pheno.molt ? '冬は白い毛になる' : '一年中同じ毛色';
+    case 'social':
+      return pheno.alarm === 1 ? 'いつも鳴く' : pheno.alarm > 0 ? '半分の確率で鳴く' : '鳴かない';
     case 'dmi':
       return al.includes('n') ? '新型あり' : '祖先型のみ';
     case 'deleterious':

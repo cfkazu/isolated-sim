@@ -13,8 +13,9 @@ const TRAIT_OF = {
   COL: { trait: 'color', cls: { K: 'black', G: 'green', w: 'white' } },
   MLT: { trait: 'molt', cls: { W: 'yes', b: 'no' } },
   GLW: { trait: 'glow', cls: { g: 'yes', N: 'no' } },
+  ALM: { trait: 'alarm', cls: { V: 'always', v: 'never' } },
 };
-const SINGLE_MODES = new Set(['series', 'codominant', 'incomplete', 'xlinked', 'overdominant', 'lethal', 'epistasis', 'plastic']);
+const SINGLE_MODES = new Set(['series', 'codominant', 'incomplete', 'xlinked', 'overdominant', 'lethal', 'epistasis', 'plastic', 'social']);
 
 const pctOf = (v) => `${Math.round(v * 100)}%`;
 const whoOf = (c) => `${c.clan}の${c.name}（${c.sex === 'F' ? '♀' : '♂'}）`;
@@ -45,6 +46,14 @@ function clanCounts(world) {
 // 変化の原因の説明（自然選択の実測があればそれ、なければ偶然の可能性）
 function cause(world, key, allele, rising, sel) {
   if (LOCUS[key].mode === 'incomplete') return '耳の形は生死に関わらないので、これは偶然（遺伝的浮動）による変化。';
+  if (key === 'ALM') {
+    const recent = world.history.slice(-DIGEST_YEARS).map((h) => h.alarm).filter((a) => a?.r != null && a.rRandom != null);
+    if (recent.length) {
+      const r = recent.reduce((t, a) => t + a.r, 0) / recent.length;
+      const r0 = recent.reduce((t, a) => t + a.rRandom, 0) / recent.length;
+      return `鳴いた個体と、声を聞いて隠れた個体の血縁度は平均 ${r.toFixed(2)}（島の無作為な 2 匹は ${r0.toFixed(2)}）。${r > 2 * r0 ? '声は主に親族を助けている。' : '声を聞くのは親族とは限らない。'}`;
+    }
+  }
   const map = TRAIT_OF[key];
   const s = map && sel.find((x) => x.key === map.trait);
   if (s && s.t != null && s.t >= SELECTION_T) {

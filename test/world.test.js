@@ -289,3 +289,13 @@ test('見どころ：5 年ごとに作られ、中立な耳の形を自然選択
   assert.ok(w.highlights.items.length >= 1 && w.highlights.items.length <= 4);
   for (const it of w.highlights.items) assert.ok(!it.text.includes('耳の形（中立'), it.text);
 });
+
+test('警戒声：声を聞くのは、島の中の無作為な相手より近い親族', () => {
+  const w = new World({ seed: 'alarm', initialPredators: 10 });
+  for (let m = 0; m < 12 * 60; m++) w.step();
+  const recs = w.history.slice(20).map((h) => h.alarm).filter((a) => a.r != null && a.rRandom != null);
+  assert.ok(recs.length > 10);
+  const r = recs.reduce((t, a) => t + a.r, 0) / recs.length;
+  const r0 = recs.reduce((t, a) => t + a.rRandom, 0) / recs.length;
+  assert.ok(r > 1.5 * r0, `r=${r.toFixed(3)} r0=${r0.toFixed(3)}`);
+});

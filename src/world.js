@@ -53,6 +53,10 @@ const BREEDING_MONTHS = new Set([2, 3, 4, 5]);
 const WINTER_COAT_MONTHS = new Set([11, 0, 1]);
 // アルビノは目が弱く、近くの相手を見つけられる範囲がこの割合に狭まる
 const ALBINO_SIGHT = 0.6;
+// 警戒声：鳴いた本人は目立つ（見つけやすさ × (1 + ALARM_COST)）。知らされた周りの個体は隠れる（× (1 − ALARM_BENEFIT)）。
+// 声が届くのは、同じ草のマスとその隣のマス（おおよそ島の幅の 2.5〜6%）
+const ALARM_COST = 0.3;
+const ALARM_BENEFIT = 0.5;
 // ミトコンドリアの突然変異率（1 回の出生あたり）。母系の新しい系統（分家）の芽になる
 const MT_MUTATION_RATE = 1 / 40;
 // 分家の芽が、生きている個体がこの数に育ったら家として名前を付ける
@@ -192,6 +196,10 @@ export class World {
       stillborn: 0,
       infertile: 0,
       dispersals: 0,
+      calls: 0,
+      warned: 0,
+      alarmR: 0,
+      alarmPairs: 0,
       dispersers: { M: 0, F: 0 },
       dispersalDist: { M: 0, F: 0 },
       deaths: Object.fromEntries(Object.keys(DEATH_CAUSES).map((k) => [k, 0])),
@@ -420,6 +428,7 @@ export class World {
       // 捕食者は見た目の色で探す。色の抜けたアルビノは白い毛と見分けがつかない
       colors[i] = c.coat === 'albino' ? 'white' : c.coat;
     }
+    if (this.predators > 0) this._alarmCalls(cs, detect);
     const { hazards: predHazard } = predationHazards(this.predators, detect, colors, o.searchImage);
 
     let kills = 0;
@@ -502,6 +511,74 @@ export class World {
   // 歩いて行けるのは同じ陸地の中だけ（海は泳いで渡れない）
   _sameLand(c, nx, ny) {
     return this.island.isLand(nx, ny) && this.island.landmassAt(nx, ny) === this.island.landmassAt(c.x, c.y);
+  }
+
+  // 警戒声：鳴く遺伝子を持つ大人は確率 pheno.alarm で鳴き、声の届く範囲の個体を隠れさせる。
+  // 親族を助けるという規則は書かない。誰が近くにいるかは、縄張りと旅立ちで決まる。
+  // 観察のため、鳴いた個体と知らされた個体の血縁度 r（= 2 × 血縁係数）を一部だけ測っておく。
+  _alarmCalls(cs, detect) {
+    const veg = this.vegetation;
+    const cells = new Map();
+    const cellOf = new Int32Array(cs.length);
+    for (let i = 0; i < cs.length; i++) {
+      const f = veg.cellAt(cs[i].x, cs[i].y);
+      cellOf[i] = f;
+      if (!cells.has(f)) cells.set(f, []);
+      cells.get(f).push(i);
+    }
+    const warned = new Uint8Array(cs.length);
+    const calling = new Uint8Array(cs.length);
+    let sampled = 0;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      if (c.age < 12 || c.pheno.alarm === 0 || this.rng.next() >= c.pheno.alarm) continue;
+      calling[i] = 1;
+      this.counters.calls++;
+      const fx = cellOf[i] % veg.FW;
+      const fy = (cellOf[i] - fx) / veg.FW;
+      const land = this.island.landmassAt(c.x, c.y);
+      let heard = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = fx + dx;
+          const y = fy + dy;
+          if (x < 0 || y < 0 || x >= veg.FW || y >= veg.FH) continue;
+          for (const j of cells.get(y * veg.FW + x) ?? []) {
+            if (j === i || this.island.landmassAt(cs[j].x, cs[j].y) !== land) continue;
+            warned[j] = 1;
+            this.counters.warned++;
+            if (sampled < 60 && heard < 3) {
+              this.counters.alarmR += 2 * this.pedigree.kinship(c.id, cs[j].id);
+              this.counters.alarmPairs++;
+              sampled++;
+              heard++;
+            }
+          }
+        }
+      }
+    }
+    for (let i = 0; i < cs.length; i++) {
+      if (warned[i]) detect[i] *= 1 - ALARM_BENEFIT;
+      if (calling[i]) detect[i] *= 1 + ALARM_COST;
+    }
+  }
+
+  // 島の中から無作為に選んだ 2 匹の血縁度の平均（観察用。乱数は島の歴史と別のものを使う）
+  _randomRelatedness(cs, pairs) {
+    if (cs.length < 2) return null;
+    let sum = 0;
+    let s = (this.tick * 2654435761) >>> 0;
+    const pick = () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return cs[s % cs.length];
+    };
+    for (let k = 0; k < pairs; k++) {
+      const a = pick();
+      let b = pick();
+      if (a === b) b = cs[(cs.indexOf(a) + 1) % cs.length];
+      sum += 2 * this.pedigree.kinship(a.id, b.id);
+    }
+    return sum / pairs;
   }
 
   // 大人になったとき一度だけ、遺伝子で決まる距離だけ離れた場所へ旅立つ（同じ陸地の中）。
@@ -1203,6 +1280,14 @@ export class World {
       births: this.counters.births,
       stillborn: this.counters.stillborn,
       infertile: this.counters.infertile,
+      // 警戒声：鳴いた回数、知らされた延べ数、鳴いた個体と知らされた個体の血縁度の平均
+      alarm: {
+        calls: this.counters.calls,
+        warned: this.counters.warned,
+        r: this.counters.alarmPairs ? this.counters.alarmR / this.counters.alarmPairs : null,
+        // 比べるための、島の中の無作為な 2 匹の血縁度
+        rRandom: this._randomRelatedness(cs, 40),
+      },
       // 昨年旅立った個体の平均の距離（島の幅に対する割合）と、旅立ちの遺伝子の平均
       dispersal: {
         M: this.counters.dispersers.M ? this.counters.dispersalDist.M / this.counters.dispersers.M : null,

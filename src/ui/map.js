@@ -43,6 +43,11 @@ export const DISPLAY_LEGENDS = {
     ['祖先型のみ', '#9a9a9a'],
   ],
   clan: () => [['家（母系）ごとの色。同じ家は近くに固まって住む', 'conic-gradient(#e0892e, #2f7fd8, #3aa655, #c0307a, #e0892e)']],
+  alarm: () => [
+    ['いつも鳴く（V/V）', '#d9480f'],
+    ['ときどき鳴く（V/v）', '#f59f00'],
+    ['鳴かない', '#9a9a9a'],
+  ],
   age: () => [
     ['0歳', '#fff3c4'],
     ['7歳', '#f0a04b'],
@@ -140,6 +145,8 @@ export class MapView {
         const id = this.world?.establishedHaplo(c.mt)?.id ?? 0;
         return `hsl(${(id * 137.508) % 360}, 65%, ${45 + ((id * 7) % 3) * 8}%)`;
       }
+      case 'alarm':
+        return c.pheno.alarm === 1 ? '#d9480f' : c.pheno.alarm > 0 ? '#f59f00' : '#9a9a9a';
       case 'age':
         return c.age < 84 ? lerpColor('#fff3c4', '#f0a04b', c.age / 84) : lerpColor('#f0a04b', '#8c2d19', (c.age - 84) / 96);
       default:
