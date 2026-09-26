@@ -286,12 +286,10 @@ export class ScenarioEditor {
         return;
       case 'export-file':
         this._showExport();
-        try {
-          downloadJson(d);
-          this.status('ファイルに書き出しました（うまく保存されないときは、下の文字列をコピーしてください）。');
-        } catch {
-          this.status('ファイルに書き出せませんでした。下の文字列をコピーしてください。');
-        }
+        saveJsonFile(d).then(
+          (ok) => this.status(ok ? 'ファイルに書き出しました。' : 'ファイルに書き出せませんでした。下の文字列をコピーしてください。'),
+          () => this.status('ファイルに書き出せませんでした。下の文字列をコピーしてください。'),
+        );
         return;
       case 'export-copy': {
         const box = this._showExport();
@@ -332,13 +330,29 @@ function placeText(p) {
   return p ? `中心 (${Math.round(p.x * 100)}, ${Math.round(p.y * 100)})・半径 ${Math.round(p.r * 100)}` : '未定（島じゅう）';
 }
 
-export function downloadJson(sc) {
-  const blob = new Blob([JSON.stringify(sc, null, 2)], { type: 'application/json' });
+// シナリオを JSON ファイルとして保存する。
+// claude.ai の公開ページでは downloads の仕組み（閲覧者が確認してから保存）を使い、手元で開いたページでは普通のダウンロードにする
+export async function saveJsonFile(sc) {
+  const filename = `${sc.label.replace(/[\\/:*?"<>|]/g, '_') || 'scenario'}.json`;
+  const data = JSON.stringify(sc, null, 2);
+  if (window.claude?.use) {
+    const downloads = await window.claude.use('downloads');
+    if (downloads) {
+      try {
+        await downloads.save({ filename, data });
+        return true;
+      } catch (e) {
+        return e?.code === 'declined' ? true : false;
+      }
+    }
+    return false;
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${sc.label.replace(/[\\/:*?"<>|]/g, '_') || 'scenario'}.json`;
+  a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  return true;
 }
