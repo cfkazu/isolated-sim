@@ -137,6 +137,7 @@ export class ScenarioEditor {
         <button type="button" data-sc="close">やめる</button>
       </div>
       <p class="muted small" data-sc-status></p>
+      <textarea class="sc-export" rows="6" readonly data-sc-export hidden></textarea>
     </div>`;
   }
 
@@ -284,14 +285,25 @@ export class ScenarioEditor {
         this.hooks.onStart(d);
         return;
       case 'export-file':
-        downloadJson(d);
+        this._showExport();
+        try {
+          downloadJson(d);
+          this.status('ファイルに書き出しました（うまく保存されないときは、下の文字列をコピーしてください）。');
+        } catch {
+          this.status('ファイルに書き出せませんでした。下の文字列をコピーしてください。');
+        }
         return;
-      case 'export-copy':
-        navigator.clipboard?.writeText(JSON.stringify(d, null, 2)).then(
-          () => this.status('文字列をコピーしました。'),
-          () => this.status('コピーできませんでした。'),
-        );
+      case 'export-copy': {
+        const box = this._showExport();
+        const done = () => this.status('文字列をコピーしました。');
+        const fail = () => {
+          box.select();
+          this.status('自動でコピーできませんでした。下の文字列を選んでコピーしてください。');
+        };
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(box.value).then(done, fail);
+        else fail();
         return;
+      }
       case 'close':
         this.hooks.onClose();
         return;
@@ -300,6 +312,14 @@ export class ScenarioEditor {
     }
     this.render();
     this.hooks.onChange(d);
+  }
+
+  // 書き出した JSON を画面にも出す（ダウンロードやコピーが使えない環境のため）
+  _showExport() {
+    const box = this.el.querySelector('[data-sc-export]');
+    box.value = JSON.stringify(this.draft, null, 2);
+    box.hidden = false;
+    return box;
   }
 
   status(text) {
