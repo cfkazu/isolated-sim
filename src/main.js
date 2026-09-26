@@ -231,8 +231,9 @@ $('#start-screen').addEventListener('click', (e) => {
     chooseScenario(card.dataset.start);
     renderSettings(...settingsArgs);
     hideStartScreen();
+    // 始めるのは一時停止から（▶ 再生で動き出す）
     newWorld();
-    setPlaying(true);
+    selectTab('creature');
     return;
   }
   if (e.target.closest('[data-start-edit]')) openEditor(draftFrom('free'));
