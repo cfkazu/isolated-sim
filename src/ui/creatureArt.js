@@ -27,7 +27,10 @@ export function drawCreature(canvas, c, cssW = canvas.clientWidth || 120, cssH =
   const p = c.pheno;
   const cond = c.alive === false ? 1 : c.condition ?? 1;
   const juv = c.age < 12;
-  const body = cssVar(`--body-${p.color}`);
+  // いまの毛色（アルビノ・白い冬毛）。模様は元の毛色のときだけ出る
+  const coat = c.coat ?? (p.albino ? 'albino' : p.color);
+  const body = cssVar(`--body-${coat}`);
+  const showPattern = coat === p.color;
   const dark = shade(body, 0.72);
   const line = 'rgba(0,0,0,0.55)';
   const s = (juv ? 0.62 : 1) * p.size;
@@ -105,7 +108,7 @@ export function drawCreature(canvas, c, cssW = canvas.clientWidth || 120, cssH =
   bodyPath();
   ctx.clip();
   const mark = p.color === 'black' ? 'rgba(255,255,255,0.7)' : 'rgba(25,25,25,0.55)';
-  if (p.pattern === 'stripes' || p.pattern === 'both') {
+  if (showPattern && (p.pattern === 'stripes' || p.pattern === 'both')) {
     ctx.strokeStyle = mark;
     ctx.lineWidth = 5 * s;
     for (let i = -2; i <= 3; i++) {
@@ -115,7 +118,7 @@ export function drawCreature(canvas, c, cssW = canvas.clientWidth || 120, cssH =
       ctx.stroke();
     }
   }
-  if (p.pattern === 'spots' || p.pattern === 'both') {
+  if (showPattern && (p.pattern === 'spots' || p.pattern === 'both')) {
     ctx.fillStyle = mark;
     for (const [ox, oy, r] of [
       [-20, -8, 5],
@@ -167,7 +170,8 @@ export function drawCreature(canvas, c, cssW = canvas.clientWidth || 120, cssH =
   ear(-hr * 0.05, false);
 
   // 顔：目・鼻。やせていれば口がへの字
-  const eye = p.color === 'black' ? '#ffffff' : '#161616';
+  // アルビノの目は赤い
+  const eye = coat === 'albino' ? '#c0303a' : coat === 'black' ? '#ffffff' : '#161616';
   ctx.fillStyle = eye;
   ctx.beginPath();
   ctx.arc(hx - hr * 0.35, hy - hr * 0.1, (juv ? 3.4 : 2.6) * p.size, 0, Math.PI * 2);

@@ -196,8 +196,28 @@ function geneCards(c) {
   const dCount = dl.filter((k) => al(k).includes('d')).length;
 
   const looks = [
-    card('体色', COLOR_LABEL[ph.color], chips('COL', (a) => a !== colorLetter), ph.color !== 'white' && al('COL').includes('w') ? '白の遺伝子 w を隠し持つ' : '', '優劣序列'),
+    card(
+      '体色',
+      ph.albino ? `${COLOR_LABEL[ph.color]}（隠れている）` : COLOR_LABEL[ph.color],
+      chips('COL', (a) => ph.albino || a !== colorLetter),
+      ph.albino ? 'アルビノなので体色の遺伝子は表に出ない（子には伝わる）' : ph.color !== 'white' && al('COL').includes('w') ? '白の遺伝子 w を隠し持つ' : '',
+      '優劣序列',
+    ),
     card('模様', PATTERN_LABEL[ph.pattern], chips('PAT', (a) => a === 'o' && (p1 !== 'o' || p2 !== 'o')), ph.pattern === 'both' ? '斑点と縞の両方が出る（共優性）' : '', '共優性'),
+    card(
+      '色素',
+      ph.albino ? 'アルビノ' : '色あり',
+      chips('ALB', (a) => !ph.albino && a === 'c'),
+      ph.albino ? '体色の遺伝子を覆い隠す。目が弱い' : al('ALB').includes('c') ? 'アルビノの遺伝子 c を隠し持つ' : '',
+      '上位',
+    ),
+    card(
+      '換毛',
+      ph.molt ? '冬は白い毛' : '一年中同じ',
+      chips('MLT', (a) => ph.molt && a === 'b'),
+      ph.albino ? 'アルビノなので冬毛も色なし' : ph.molt ? '12〜2 月は白くなる（雪がなくても）' : '',
+      '可塑性',
+    ),
     card('耳の形', EAR_LABEL[ph.ear], chips('EAR', () => false), '中立な形質', '不完全優性'),
     card(
       '発光',

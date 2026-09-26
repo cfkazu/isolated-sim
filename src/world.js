@@ -48,6 +48,10 @@ export const DEATH_CAUSES = {
 
 export const MONTH_LABEL = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 const BREEDING_MONTHS = new Set([2, 3, 4, 5]);
+// 換毛する個体が白い冬毛になる月（12〜2 月）
+const WINTER_COAT_MONTHS = new Set([11, 0, 1]);
+// アルビノは目が弱く、近くの相手を見つけられる範囲がこの割合に狭まる
+const ALBINO_SIGHT = 0.6;
 // ミトコンドリアの突然変異率（1 回の出生あたり）。母系の新しい系統（分家）の芽になる
 const MT_MUTATION_RATE = 1 / 40;
 // 分家の芽が、生きている個体がこの数に育ったら家として名前を付ける
@@ -236,6 +240,7 @@ export class World {
       // ねぐら（ホームレンジの中心）。生まれた場所から始まり、大人になるときの旅立ちで移る
       hx: x,
       hy: y,
+      coat: null,
       dispersed: founder,
       age,
       birthTick: this.tick - age,
@@ -254,6 +259,7 @@ export class World {
       deathTick: null,
       cause: null,
     };
+    c.coat = this.coatOf(c);
     this.creatures.push(c);
     this.pedigree.add(c);
     mother?.children.push(id);
@@ -324,9 +330,16 @@ export class World {
     return t !== TERRAIN.BEACH && this.island.elevationAt(x, y) > this.snowLine;
   }
 
-  // 目立ちやすさ = 体色と足元の地面の色の差（発光していれば、光の強さに応じてさらに目立つ）
+  // いまの毛色：アルビノは一年中色なし。換毛の遺伝子を持つと冬（12〜2 月、日の長さで決まる）は白い毛になる
+  coatOf(c) {
+    if (c.pheno.albino) return 'albino';
+    if (c.pheno.molt && WINTER_COAT_MONTHS.has(this.month)) return 'white';
+    return c.pheno.color;
+  }
+
+  // 目立ちやすさ = いまの毛色と足元の地面の色の差（発光していれば、光の強さに応じてさらに目立つ）
   visibility(c) {
-    let v = contrast(BODY_RGB[c.pheno.color], groundAt(this, c.x, c.y));
+    let v = contrast(BODY_RGB[c.coat], groundAt(this, c.x, c.y));
     v += 0.3 * glowDisplay(c);
     return v;
   }
@@ -398,9 +411,11 @@ export class World {
     const colors = new Array(cs.length);
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i];
+      c.coat = this.coatOf(c);
       // 長い尾は逃げるときの邪魔になる
       detect[i] = this.visibility(c) * (1.35 - 0.35 * c.pheno.size) * (c.age < 12 ? 1.6 : 1) * (1 + 0.5 * c.pheno.tail);
-      colors[i] = c.pheno.color;
+      // 捕食者は見た目の色で探す。色の抜けたアルビノは白い毛と見分けがつかない
+      colors[i] = c.coat === 'albino' ? 'white' : c.coat;
     }
     const { hazards: predHazard } = predationHazards(this.predators, detect, colors, o.searchImage);
 
@@ -642,7 +657,8 @@ export class World {
 
   _chooseMate(f, males) {
     const o = this.opts;
-    const R2 = 0.14 * 0.14;
+    const sight = f.pheno.albino ? 0.14 * ALBINO_SIGHT : 0.14;
+    const R2 = sight * sight;
     // 相手は同じ陸地にいるオスだけ（海の向こうには行けない）
     const land = this.island.landmassAt(f.x, f.y);
     const sameLand = males.filter((m) => this.island.landmassAt(m.x, m.y) === land);

@@ -218,3 +218,19 @@ test('雑種の不和合：東と西の間の子は子ができにくく、X 上
   }
   assert.ok(daughters > 10 && sons > 10);
 });
+
+test('エピスタシス：K/w C/c どうしの子は 黒 9：白 3：アルビノ 4 に分かれる', () => {
+  const rng = createRng('epistasis');
+  const mom = genome('F', { COL: ['K', 'w'], ALB: ['C', 'c'] });
+  const dad = genome('M', { COL: ['K', 'w'], ALB: ['C', 'c'] });
+  const n = 8000;
+  const k = { black: 0, white: 0, albino: 0 };
+  for (let i = 0; i < n; i++) {
+    const z = fertilize(makeGamete(mom, 'F', rng), makeGamete(dad, 'M', rng));
+    const ph = express(z.genome);
+    k[ph.albino ? 'albino' : ph.color]++;
+  }
+  assert.ok(Math.abs(k.black / n - 9 / 16) < 0.02);
+  assert.ok(Math.abs(k.white / n - 3 / 16) < 0.02);
+  assert.ok(Math.abs(k.albino / n - 4 / 16) < 0.02);
+});

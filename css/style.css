@@ -22,6 +22,7 @@
   --body-black: #3b3a37;
   --body-green: #3f9d4a;
   --body-white: #ece8dc;
+  --body-albino: #f8eeea;
   --radius: 10px;
   font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic UI', sans-serif;
 }
@@ -50,6 +51,7 @@
     --body-black: #55534e;
     --body-green: #4aae55;
     --body-white: #ece8dc;
+    --body-albino: #f8eeea;
   }
 }
 
@@ -76,6 +78,7 @@
   --body-black: #55534e;
   --body-green: #4aae55;
   --body-white: #ece8dc;
+  --body-albino: #f8eeea;
 }
 
 * {

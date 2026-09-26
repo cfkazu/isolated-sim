@@ -39,6 +39,16 @@ export const INHERITANCE = {
     short: '超優性',
     desc: '免疫型 A/B のヘテロ接合体が最も病気に強い。どちらかの対立遺伝子が消えると不利になるため、平衡選択で両方が維持されやすい（鎌状赤血球とマラリアの関係に似る）。',
   },
+  epistasis: {
+    label: 'エピスタシス（上位遺伝子）',
+    short: '上位',
+    desc: '色素をつくる遺伝子 C が c/c だと、体色の遺伝子（K・G・w）や模様が何であっても色が抜けてアルビノになる。ほかの遺伝子の働きを覆い隠すので「上位」と呼ぶ。黒（K/w C/c）どうしの子は 黒 9：白 3：アルビノ 4 に分かれる（9：3：4 の比）。アルビノは目が弱く、相手を見つけにくい。',
+  },
+  plastic: {
+    label: '表現型の可塑性（季節で変わる）',
+    short: '可塑性',
+    desc: '換毛の遺伝子 W を持つと、冬（12〜2 月）だけ白い毛に生え変わる（W は優性）。生え変わる時期は日の長さで決まるので、雪があるかどうかは関係ない。雪の多い山や寒い時代には保護色になるが、雪のない海辺や暖かい時代には、白い冬毛が緑の地面で目立ってしまう（ユキウサギと同じ）。',
+  },
   lethal: {
     label: '劣性致死',
     short: '劣性致死',
@@ -166,6 +176,16 @@ export const LOCI = [
     labels: { S: '斑点', T: '縞', o: '無地' },
   },
   poly('MB2', 'C2', 5, 'metab', 2),
+  {
+    key: 'MLT',
+    chr: 'C2',
+    pos: 48,
+    name: '換毛',
+    mode: 'plastic',
+    alleles: ['W', 'b'],
+    freq: [0.15, 0.85],
+    labels: { W: '冬に白くなる', b: '一年中同じ' },
+  },
   limited('PG1', 'C2', 25, 'prefGlow', '発光への好み1', 0.3),
   {
     key: 'EAR',
@@ -193,6 +213,16 @@ export const LOCI = [
     labels: { A: 'A型', B: 'B型' },
   },
   poly('MB3', 'C3', 5, 'metab', 3),
+  {
+    key: 'ALB',
+    chr: 'C3',
+    pos: 30,
+    name: '色素',
+    mode: 'epistasis',
+    alleles: ['C', 'c'],
+    freq: [0.85, 0.15],
+    labels: { C: '色あり', c: '色なし' },
+  },
   limited('TL3', 'C3', 25, 'tail', '尾の長さ3', 0.4),
   poly('SZ3', 'C3', 35, 'size', 3),
   limited('PT3', 'C3', 45, 'prefTail', '尾への好み3', 0.3),
@@ -425,6 +455,10 @@ export function express(genome) {
   for (const i of DEL_KEYS) if (genome.m[i] === 'd' && genome.p[i] === 'd') load++;
 
   const fertility = dmiFertility(genome);
+  // エピスタシス：色素の遺伝子が c/c なら、体色・模様に関係なく色が抜ける
+  const albino = allelesAt(genome, 'ALB').every((a) => a === 'c');
+  // 換毛：W を持つと冬だけ白い毛になる
+  const molt = allelesAt(genome, 'MLT').includes('W');
   // 大人になるときに旅立つ距離（0〜1）。オスとメスで別々の遺伝子座
   const dispMGene = polyValue(genome, DISP_M_KEYS);
   const dispFGene = polyValue(genome, DISP_F_KEYS);
@@ -434,6 +468,8 @@ export function express(genome) {
     pattern,
     ear,
     fertility,
+    albino,
+    molt,
     dispMGene,
     dispFGene,
     dispersal: male ? dispMGene : dispFGene,
@@ -464,7 +500,7 @@ export function genotypeString(genome, key) {
   return `${x}/${y}`;
 }
 
-export const COLOR_LABEL = { black: '黒', green: '緑', white: '白' };
+export const COLOR_LABEL = { black: '黒', green: '緑', white: '白', albino: 'アルビノ' };
 export const PATTERN_LABEL = { spots: '斑点', stripes: '縞', both: '斑点＋縞', plain: '無地' };
 export const EAR_LABEL = ['垂れ耳', '半立ち耳', '立ち耳'];
 
@@ -501,6 +537,10 @@ export function locusEffect(key, genome, pheno) {
       return het ? '免疫力：強（ヘテロ）' : '免疫力：弱';
     case 'lethal':
       return het ? '健康（保因者）' : '健康';
+    case 'epistasis':
+      return pheno.albino ? 'アルビノ（体色・模様を覆い隠す）' : het ? '色あり（アルビノの保因者）' : '色あり';
+    case 'plastic':
+      return pheno.molt ? '冬は白い毛になる' : '一年中同じ毛色';
     case 'dmi':
       return al.includes('n') ? '新型あり' : '祖先型のみ';
     case 'deleterious':
@@ -539,7 +579,7 @@ export function polygenicSummary(genome) {
 
 export function isCarrier(key, genome) {
   const locus = LOCUS[key];
-  if (!['lethal', 'deleterious', 'xlinked'].includes(locus.mode)) return false;
+  if (!['lethal', 'deleterious', 'xlinked', 'epistasis'].includes(locus.mode)) return false;
   const al = allelesAt(genome, key);
   return al.length === 2 && al[0] !== al[1];
 }

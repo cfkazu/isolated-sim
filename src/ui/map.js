@@ -18,6 +18,7 @@ export const DISPLAY_LEGENDS = {
     ['黒', bodyColor('black')],
     ['緑', bodyColor('green')],
     ['白', bodyColor('white')],
+    ['アルビノ', bodyColor('albino')],
     ['発光（黄色い光）', '#ffe45c'],
   ],
   sex: () => [
@@ -142,7 +143,7 @@ export class MapView {
       case 'age':
         return c.age < 84 ? lerpColor('#fff3c4', '#f0a04b', c.age / 84) : lerpColor('#f0a04b', '#8c2d19', (c.age - 84) / 96);
       default:
-        return bodyColor(c.pheno.color);
+        return bodyColor(c.coat ?? c.pheno.color);
     }
   }
 
@@ -187,7 +188,8 @@ export class MapView {
       ctx.lineWidth = 1;
       ctx.strokeStyle = outline;
       ctx.stroke();
-      if (natural && r > 2.5) {
+      // 色の抜けたアルビノと白い冬毛には模様が出ない
+      if (natural && r > 2.5 && (c.coat ?? c.pheno.color) === c.pheno.color) {
         const mark = c.pheno.color === 'black' ? 'rgba(255,255,255,0.8)' : 'rgba(20,20,20,0.75)';
         if (c.pheno.pattern === 'stripes' || c.pheno.pattern === 'both') {
           ctx.strokeStyle = mark;

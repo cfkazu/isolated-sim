@@ -170,6 +170,12 @@ export const SELECTION_TRAITS = {
     names: { black: '黒', green: '緑', white: '白' },
     of: (c) => c.pheno.color,
   },
+  molt: {
+    label: '換毛',
+    classes: ['yes', 'no'],
+    names: { yes: '冬に白くなる', no: '一年中同じ' },
+    of: (c) => (c.pheno.molt ? 'yes' : 'no'),
+  },
   glow: {
     label: '発光（オス）',
     male: true,
@@ -350,6 +356,32 @@ export function mendelianSummary(creatures, freqs = alleleFrequencies(creatures)
     ],
     alleles: alleles('COL', ['--body-black', '--body-green', '--body-white']),
     note: `見た目が白は ${pctText(col.white / n)}。ほかに ${pctText(wCarrier / n)} が白の遺伝子 w を隠し持つ。`,
+  });
+
+  const albino = count((c) => c.pheno.albino);
+  const cCarrier = count((c) => !c.pheno.albino && has(c, 'ALB', 'c'));
+  cards.push({
+    key: 'ALB',
+    title: '色素（アルビノ）',
+    segments: [
+      { label: 'アルビノ', value: albino / n, color: '--body-albino' },
+      { label: '保因者', value: cCarrier / n, color: '--series-2' },
+      { label: 'なし', value: (n - albino - cCarrier) / n, color: '--grid' },
+    ],
+    alleles: alleles('ALB', ['--grid', '--body-albino']),
+    note: `アルビノ ${pctText(albino / n)}。c/c になると体色の遺伝子が何であっても色が抜ける（エピスタシス）。ほかに ${pctText(cCarrier / n)} が c を隠し持つ。`,
+  });
+
+  const molt = count((c) => c.pheno.molt);
+  cards.push({
+    key: 'MLT',
+    title: '換毛（冬に白くなる）',
+    segments: [
+      { label: '冬に白くなる', value: molt / n, color: '--body-white' },
+      { label: '一年中同じ', value: 1 - molt / n, color: '--body-green' },
+    ],
+    alleles: alleles('MLT', ['--body-white', '--body-green']),
+    note: `${pctText(molt / n)} が冬（12〜2 月）に白い毛に生え変わる。雪があれば保護色、なければ目立つ。`,
   });
 
   const pat = { spots: 0, stripes: 0, both: 0, plain: 0 };

@@ -264,3 +264,20 @@ test('縄張りと旅立ち：大人は一度だけ旅立ち、ふだんはね�
   const h = w.history.at(-1);
   assert.ok(h.dispersal.geneM > 0 && h.dispersal.geneF > 0);
 });
+
+test('換毛：換毛する個体は冬（12〜2 月）だけ白い毛になり、アルビノは一年中色がない', () => {
+  const w = new World({ seed: 'molt', initialCount: 40 });
+  const c = w.creatures.find((x) => x.pheno.molt && !x.pheno.albino && x.pheno.color !== 'white');
+  assert.ok(c);
+  const coats = [];
+  for (let m = 0; m < 12; m++) {
+    coats[w.month] = w.coatOf(c);
+    w.step();
+  }
+  assert.deepEqual(
+    coats.map((x, i) => [11, 0, 1].includes(i) === (x === 'white')),
+    new Array(12).fill(true),
+  );
+  const a = { pheno: { ...c.pheno, albino: true } };
+  assert.equal(w.coatOf(a), 'albino');
+});
