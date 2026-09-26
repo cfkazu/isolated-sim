@@ -1166,3 +1166,26 @@ details.full-genes summary {
 .highlights .link {
   text-align: left;
 }
+
+.clan-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -2px 0 6px;
+  font-size: 12px;
+}
+
+.ctrait {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.ctrait.up {
+  border-color: var(--series-1);
+}
+
+.ctrait.down {
+  border-color: var(--grid);
+}

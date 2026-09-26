@@ -20,6 +20,7 @@ import {
 import {
   alleleFrequencies,
   islandStats,
+  clanProfiles,
   genotypeTable,
   SELECTION_TRAITS,
   mergeSelection,
@@ -351,7 +352,7 @@ export class StatsPanel {
       <h3>島ごと</h3>
       <div id="islands"></div>
       <h3>いまの家（母系）</h3>
-      <p class="small muted">家は母から子へ受け継がれ、まれにミトコンドリアの突然変異で分家が生まれます（生きている子孫が 10 匹に育つと家として独立）。字下げは分かれた元の家。</p>
+      <p class="small muted">家は母から子へ受け継がれ、まれにミトコンドリアの突然変異で分家が生まれます（生きている子孫が 10 匹に育つと家として独立）。字下げは分かれた元の家。家の下の小さな字は、島全体と比べてはっきり違う遺伝子（8 匹以上の家）。遺伝子の半分はよその家の父から来るので、家の特徴はふつう薄まっていきますが、縄張りで近所どうしが結ばれると残りやすくなります。</p>
       <div id="clan-tree" class="bars clan-tree"></div>
       <h3>創始者の系統</h3><div id="founders-chart"></div><div id="founders" class="bars"></div>`;
     const host = el.querySelector('#stats-charts');
@@ -510,11 +511,23 @@ export class StatsPanel {
         : '');
     const clans = world.clanTree();
     const clanMax = Math.max(1, ...clans.map((c) => c.n));
+    const groups = new Map();
+    for (const c of world.creatures) {
+      const id = world.establishedHaplo(c.mt).id;
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(c);
+    }
+    const profiles = clanProfiles(groups, world.creatures);
     this.el.querySelector('#clan-tree').innerHTML = clans
-      .map(
-        (c) =>
-          `<div class="bar-row"><span style="padding-left:${c.depth}em">${idLink(world, c.founderId, c.name)}</span><div class="track"><div class="fill" style="width:${(c.n / clanMax) * 100}%"></div></div><span class="num">${c.n}</span></div>`,
-      )
+      .map((c) => {
+        const traits = profiles.get(c.id) ?? [];
+        const chips = traits.length
+          ? `<div class="clan-traits" style="padding-left:${c.depth + 0.6}em">${traits
+              .map((t) => `<span class="ctrait ${t.up ? 'up' : 'down'}" title="${t.detail}">${t.text}<span class="muted">（${t.detail}）</span></span>`)
+              .join('')}</div>`
+          : '';
+        return `<div class="bar-row"><span style="padding-left:${c.depth}em">${idLink(world, c.founderId, c.name)}</span><div class="track"><div class="fill" style="width:${(c.n / clanMax) * 100}%"></div></div><span class="num">${c.n}</span></div>${chips}`;
+      })
       .join('');
     const top = (world.founderSnapshot ?? []).slice(0, 8);
     const topMax = Math.max(0.01, ...top.map((f) => f.share));

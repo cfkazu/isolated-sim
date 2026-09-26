@@ -589,3 +589,83 @@ export function islandStats(creatures, island) {
   }
   return { rows: rows.map(({ creatures: _, ...r }) => r), fst, barriers };
 }
+
+// ───── 家ごとの特徴 ─────
+// 家（母系）ごとに遺伝子の割合と量的形質の平均を島全体と比べ、差が大きいものを挙げる。
+// 家は母から子へ受け継がれるが、遺伝子の半分は父（よその家）から来るので、ふつうは特徴が薄まっていく。
+// 家の中は親族どうしで独立ではないので、差の大きさ z は目安として高めの境目（3）で使う。
+
+const CLAN_ALLELES = [
+  ['COL', 'K', '黒の遺伝子 K'],
+  ['COL', 'G', '緑の遺伝子 G'],
+  ['COL', 'w', '白の遺伝子 w'],
+  ['PAT', 'S', '斑点の遺伝子 S'],
+  ['PAT', 'T', '縞の遺伝子 T'],
+  ['GLW', 'g', '発光の遺伝子 g'],
+  ['MLT', 'W', '換毛の遺伝子 W'],
+  ['ALB', 'c', 'アルビノの遺伝子 c'],
+  ['VIT', 'A', '免疫 A 型'],
+  ['LET', 'l', '致死因子 l'],
+  ['EAR', 'U', '立ち耳 U（中立）'],
+];
+
+const CLAN_TRAITS = [
+  ['size', (c) => c.pheno.size, ['体が大きい', '体が小さい'], (v) => v.toFixed(2)],
+  ['fur', (c) => c.pheno.fur, ['毛皮が厚い', '毛皮が薄い'], (v) => `${Math.round(v * 100)}%`],
+  ['metabolism', (c) => c.pheno.metabolism, ['代謝が速い', '代謝が遅い'], (v) => v.toFixed(2)],
+  ['tail', (c) => c.pheno.tailGene, ['長い尾の遺伝子が多い', '長い尾の遺伝子が少ない'], (v) => `${Math.round(v * 100)}%`],
+  ['dispM', (c) => c.pheno.dispMGene, ['オスが遠くへ旅立つ', 'オスが近くにとどまる'], (v) => `${Math.round(v * 100)}%`],
+  ['dispF', (c) => c.pheno.dispFGene, ['メスが遠くへ旅立つ', 'メスが近くにとどまる'], (v) => `${Math.round(v * 100)}%`],
+  ['F', (c) => c.F, ['近親交配が多い', '近親交配が少ない'], (v) => `F ${v.toFixed(2)}`],
+];
+
+function alleleShare(cs, key, allele) {
+  const i = INDEX[key];
+  let k = 0;
+  let copies = 0;
+  for (const c of cs) {
+    for (const a of [c.genome.m[i], c.genome.p[i]]) {
+      if (a === null) continue;
+      copies++;
+      if (a === allele) k++;
+    }
+  }
+  return { p: copies ? k / copies : 0, copies };
+}
+
+// groups: 家の id → その家の個体の配列。戻り値：家の id → 特徴の配列（差の大きい順に最大 max 個）
+export function clanProfiles(groups, all, { minSize = 8, max = 3, zCut = 3 } = {}) {
+  const island = {
+    alleles: CLAN_ALLELES.map(([key, a]) => alleleShare(all, key, a).p),
+    traits: CLAN_TRAITS.map(([, get]) => {
+      const v = all.map(get);
+      const m = v.reduce((x, y) => x + y, 0) / Math.max(1, v.length);
+      const sd = Math.sqrt(v.reduce((x, y) => x + (y - m) ** 2, 0) / Math.max(1, v.length - 1));
+      return { m, sd };
+    }),
+  };
+  const out = new Map();
+  for (const [id, cs] of groups) {
+    if (cs.length < minSize) continue;
+    const found = [];
+    CLAN_ALLELES.forEach(([key, a, label], j) => {
+      const pi = island.alleles[j];
+      const { p, copies } = alleleShare(cs, key, a);
+      if (pi <= 0 || pi >= 1 || !copies) return;
+      const z = (p - pi) / Math.sqrt((pi * (1 - pi)) / copies);
+      if (Math.abs(z) >= zCut && Math.abs(p - pi) >= 0.1) {
+        found.push({ z, text: `${label}が${p > pi ? '多い' : '少ない'}`, detail: `${Math.round(p * 100)}%・島 ${Math.round(pi * 100)}%`, up: p > pi });
+      }
+    });
+    CLAN_TRAITS.forEach(([, get, [hi, lo], fmt], j) => {
+      const { m: mi, sd } = island.traits[j];
+      if (!(sd > 0)) return;
+      const m = cs.reduce((x, c) => x + get(c), 0) / cs.length;
+      const z = (m - mi) / (sd / Math.sqrt(cs.length));
+      if (Math.abs(z) >= zCut && Math.abs(m - mi) >= 0.5 * sd) found.push({ z, text: m > mi ? hi : lo, detail: `${fmt(m)}・島 ${fmt(mi)}`, up: m > mi });
+    });
+    found.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+    out.set(id, found.slice(0, max));
+  }
+  return out;
+}
