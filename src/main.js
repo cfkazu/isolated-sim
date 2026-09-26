@@ -1,5 +1,6 @@
 import { World, MONTH_LABEL, DEFAULTS } from './world.js';
-import { MapView, DISPLAY_LEGENDS } from './ui/map.js';
+import { ISLAND_SHAPES, GEOLOGY } from './island.js';
+import { MapView, DISPLAY_LEGENDS, drawThumbnail } from './ui/map.js';
 import { FamilyTree } from './ui/familyTree.js';
 import { restore, saveToBrowser, loadFromBrowser, listScenarios, saveScenario, deleteScenario } from './save.js';
 import { SCENARIOS, normalizeScenario, draftFrom, TRAIT_DEFS, SIMPLE_LOCI } from './scenarios.js';
@@ -192,52 +193,139 @@ function draftFromWorld(w) {
   return d;
 }
 
-// ───── 開始画面（最初に遊び始める前だけ、地図の上に出す） ─────
-const start = { shown: false };
+// ───── 開始画面（最初に遊び始める前だけ、右の列に出す） ─────
+// ① 島（形 × 地質の 9 枚の絵）と ② 始まり方（シナリオ）を選ぶと、左の地図にその島の 0 年目がすぐ映る。
+// 「▶ この島で始める」で閉じる（一時停止のまま。▶ 再生で動き出す）。
+const THUMB_SHAPES = Object.keys(ISLAND_SHAPES);
+const THUMB_GEOLOGY = Object.keys(GEOLOGY);
+const start = { shown: false, seedBase: '', pick: null, scenario: 'free', timer: 0 };
+
+const newSeedBase = () => Math.random().toString(36).slice(2, 6);
+const thumbList = () =>
+  THUMB_GEOLOGY.flatMap((geology) => THUMB_SHAPES.map((shape) => ({ shape, geology, seed: `${start.seedBase}${geology[0]}${shape[0]}` })));
+
+function scenarioData(value) {
+  if (value?.startsWith('custom:')) return findCustom(value.slice(7)) ?? SCENARIOS.free;
+  return SCENARIOS[value] ?? SCENARIOS.free;
+}
 
 function renderStartScreen() {
   const el = $('#start-screen');
   if (!el || !start.shown) return;
-  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const fixed = scenarioData(start.scenario).opts ?? {};
   const cards = [
     ...Object.entries(SCENARIOS).map(([k, v]) => ({ value: k, label: v.label, desc: v.desc })),
     ...customs.list.map((c) => ({ value: `custom:${c.id}`, label: `自作：${c.label}`, desc: c.desc })),
   ];
+  const w = state.world;
+  const shapeLabel = ISLAND_SHAPES[w.opts.islandShape]?.label ?? '';
+  const fixedNote = [fixed.islandShape && `島の形は「${ISLAND_SHAPES[fixed.islandShape].label}」`, fixed.geology && fixed.geology !== 'auto' && `地質は「${GEOLOGY[fixed.geology].label}」`]
+    .filter(Boolean)
+    .join('、');
   el.innerHTML = `<div class="start-inner">
-    <h2>どんな島で始める？</h2>
-    <div class="start-cards">${cards
-      .map((c) => `<button type="button" class="start-card" data-start="${esc(c.value)}"><strong>${esc(c.label)}</strong><span>${esc(c.desc)}</span></button>`)
+    <div class="start-head"><h2>どんな島で始める？</h2><button type="button" class="primary" data-start-go>▶ この島で始める</button></div>
+    <div class="start-head"><h3>① 島</h3><button type="button" data-start-reroll>🎲 別の島</button></div>
+    <div class="start-thumbs">${thumbList()
+      .map((t, i) => {
+        const off = (fixed.islandShape && fixed.islandShape !== t.shape) || (fixed.geology && fixed.geology !== 'auto' && fixed.geology !== t.geology);
+        const on = start.pick?.seed === t.seed;
+        return `<button type="button" class="start-thumb" data-thumb="${i}" aria-pressed="${on}" ${off ? 'disabled title="このシナリオでは選べません"' : ''}>
+          <canvas data-thumb-canvas="${i}"></canvas><span>${esc(GEOLOGY[t.geology].label)}・${esc(ISLAND_SHAPES[t.shape].label)}</span></button>`;
+      })
       .join('')}</div>
-    <div class="btn-row" style="justify-content:center">
+    <h3>② 始まり方</h3>
+    <div class="start-cards">${cards
+      .map(
+        (c) =>
+          `<button type="button" class="start-card" data-start="${esc(c.value)}" aria-pressed="${c.value === start.scenario}"><strong>${esc(c.label)}</strong><span>${esc(c.desc)}</span></button>`,
+      )
+      .join('')}</div>
+    <p class="start-picked">左の地図：<strong>${esc(w.island.geology.label)}・${esc(shapeLabel)}</strong>（シード ${esc(w.opts.seed)}）${
+      fixedNote ? `<br><span class="muted small">このシナリオでは${esc(fixedNote)}になります。</span>` : ''
+    }</p>
+    <div class="btn-row start-actions">
+      <button type="button" class="primary" data-start-go>▶ この島で始める</button>
       <button type="button" data-start-edit>✏️ 自分でシナリオを作る</button>
-      <button type="button" data-start-close>閉じる（このまま眺める）</button>
     </div></div>`;
+  paintThumbs();
+}
+
+// 島の絵は 1 枚ずつ作る（9 枚まとめて作ると 0.4 秒ほど画面が止まるので）
+function paintThumbs() {
+  clearTimeout(start.timer);
+  const list = thumbList();
+  let i = 0;
+  const next = () => {
+    if (!start.shown || i >= list.length) return;
+    const t = list[i];
+    const canvas = document.querySelector(`[data-thumb-canvas="${i}"]`);
+    if (canvas) drawThumbnail(canvas, new World({ seed: t.seed, islandShape: t.shape, geology: t.geology, initialCount: 2 }));
+    i++;
+    start.timer = setTimeout(next, 0);
+  };
+  next();
+}
+
+// 選んだ島と始まり方で、0 年目の島を作って左の地図に出す
+function previewStart() {
+  chooseScenario(start.scenario);
+  if (start.pick) Object.assign(state.opts, { seed: start.pick.seed, islandShape: start.pick.shape, geology: start.pick.geology });
+  renderSettings(...settingsArgs);
+  // 「続きから」の案内は消さない（まだ選んでいる途中なので）
+  save.tick = -1;
+  showWorld(new World(state.opts), false);
+  renderStartScreen();
 }
 
 function showStartScreen() {
   start.shown = true;
+  start.seedBase ||= newSeedBase();
+  start.scenario = state.opts.scenario === 'custom' && state.opts.scenarioData ? `custom:${state.opts.scenarioData.id}` : state.opts.scenario;
   $('#start-screen').hidden = false;
+  $('.side-col').classList.add('starting');
   renderStartScreen();
 }
 
 function hideStartScreen() {
   start.shown = false;
+  clearTimeout(start.timer);
   $('#start-screen').hidden = true;
+  $('.side-col').classList.remove('starting');
 }
 
 $('#start-screen').addEventListener('click', (e) => {
+  const thumb = e.target.closest('[data-thumb]');
+  if (thumb && !thumb.disabled) {
+    start.pick = thumbList()[Number(thumb.dataset.thumb)];
+    previewStart();
+    return;
+  }
   const card = e.target.closest('[data-start]');
   if (card) {
-    chooseScenario(card.dataset.start);
-    renderSettings(...settingsArgs);
-    hideStartScreen();
+    start.scenario = card.dataset.start;
+    // シナリオが島の形・地質を決めていて、選んだ島と合わなければ、合う島（形か地質だけ変えたもの）に選び直す
+    const fixed = scenarioData(start.scenario).opts ?? {};
+    if (start.pick) {
+      const shape = fixed.islandShape ?? start.pick.shape;
+      const geology = fixed.geology && fixed.geology !== 'auto' ? fixed.geology : start.pick.geology;
+      if (shape !== start.pick.shape || geology !== start.pick.geology) start.pick = thumbList().find((t) => t.shape === shape && t.geology === geology) ?? null;
+    }
+    previewStart();
+    return;
+  }
+  if (e.target.closest('[data-start-reroll]')) {
+    start.seedBase = newSeedBase();
+    renderStartScreen();
+    return;
+  }
+  if (e.target.closest('[data-start-go]')) {
     // 始めるのは一時停止から（▶ 再生で動き出す）
-    newWorld();
+    hideStartScreen();
     selectTab('creature');
     return;
   }
   if (e.target.closest('[data-start-edit]')) openEditor(draftFrom('free'));
-  if (e.target.closest('[data-start-close]')) hideStartScreen();
 });
 
 function newWorld() {

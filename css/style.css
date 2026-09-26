@@ -1203,30 +1203,73 @@ details.full-genes summary {
   padding-left: 1.2em;
 }
 
-/* 開始画面：最初に遊び始める前だけ地図の上に出す */
+/* 開始画面：最初に遊び始める前だけ、右の列（タブの代わり）に出す */
+.side-col.starting > .tabs,
+.side-col.starting > .tab-panel {
+  display: none !important;
+}
+
 .start-screen {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(2px);
-  padding: 16px;
-  display: grid;
-  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--series-1);
+  border-radius: var(--radius);
+  padding: 14px 16px;
 }
 
 .start-screen[hidden] {
   display: none;
 }
 
-.start-inner {
-  max-width: 620px;
-  width: 100%;
+.start-inner h2 {
+  margin: 0 0 8px;
 }
 
-.start-inner h2 {
-  text-align: center;
-  margin: 0 0 12px;
+.start-inner h3 {
+  margin: 12px 0 6px;
+}
+
+.start-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.start-thumbs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.start-thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.start-thumb canvas {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 4px;
+  image-rendering: auto;
+  background: #1d4f7a;
+}
+
+.start-thumb[aria-pressed='true'],
+.start-card[aria-pressed='true'] {
+  border-color: var(--series-1);
+  box-shadow: 0 0 0 1px var(--series-1);
+}
+
+.start-thumb:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .start-cards {
@@ -1234,6 +1277,15 @@ details.full-genes summary {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.start-picked {
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.start-actions {
+  justify-content: flex-start;
 }
 
 .start-card {

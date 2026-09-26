@@ -75,6 +75,41 @@ const rootHue = (root) => (root * 137.508) % 360;
 // 選んだ個体の、ふだん歩き回る範囲のめやす（島の幅に対する半径）
 const HOME_RANGE = 0.035;
 
+// 島の地面を 1 マス 1 ピクセルで塗る（地図と、開始画面の島の絵で共通）
+export function paintTerrain(world, image) {
+  const island = world.island;
+  const { W, H, terrain, elevation } = island;
+  const data = image.data;
+  for (let i = 0; i < W * H; i++) {
+    let rgb;
+    if (terrain[i] === TERRAIN.SEA) {
+      // 海面からの深さで塗り分ける。浅瀬（寒冷期に陸橋になりうる所）は明るく
+      const d = elevation[i] - island.seaLevel;
+      const k = 1 + Math.max(-0.4, d) * 1.2;
+      rgb = d > -0.07 ? [104, 170, 206] : d > -0.14 ? [74, 138, 188] : [43 * k, 108 * k, 163 * k];
+    } else {
+      const shade = 0.9 + elevation[i] * 0.2;
+      const g = groundOfCell(world, i);
+      rgb = [g[0] * shade, g[1] * shade, g[2] * shade];
+    }
+    data[i * 4] = rgb[0];
+    data[i * 4 + 1] = rgb[1];
+    data[i * 4 + 2] = rgb[2];
+    data[i * 4 + 3] = 255;
+  }
+}
+
+// 開始画面の島の絵
+export function drawThumbnail(canvas, world) {
+  const { W, H } = world.island;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(W, H);
+  paintTerrain(world, image);
+  ctx.putImageData(image, 0, 0);
+}
+
 export class MapView {
   constructor(canvas) {
     this.canvas = canvas;
@@ -105,25 +140,7 @@ export class MapView {
     if (this.drawnTick != null && world.tick - this.drawnTick < 12 && now - (this.drawnAt ?? 0) < 250) return;
     this.drawnAt = now;
     this.drawnTick = world.tick;
-    const { W, H, terrain, elevation } = this.island;
-    const data = this.image.data;
-    for (let i = 0; i < W * H; i++) {
-      let rgb;
-      if (terrain[i] === TERRAIN.SEA) {
-        // 海面からの深さで塗り分ける。浅瀬（寒冷期に陸橋になりうる所）は明るく
-        const d = elevation[i] - this.island.seaLevel;
-        const k = 1 + Math.max(-0.4, d) * 1.2;
-        rgb = d > -0.07 ? [104, 170, 206] : d > -0.14 ? [74, 138, 188] : [43 * k, 108 * k, 163 * k];
-      } else {
-        const shade = 0.9 + elevation[i] * 0.2;
-        const g = groundOfCell(world, i);
-        rgb = [g[0] * shade, g[1] * shade, g[2] * shade];
-      }
-      data[i * 4] = rgb[0];
-      data[i * 4 + 1] = rgb[1];
-      data[i * 4 + 2] = rgb[2];
-      data[i * 4 + 3] = 255;
-    }
+    paintTerrain(world, this.image);
     this.terrainCanvas.getContext('2d').putImageData(this.image, 0, 0);
   }
 
