@@ -313,7 +313,15 @@ function renderNotables(world) {
   ];
   const glowing = cs.filter((c) => c.pheno.glow);
   if (glowing.length) items.push(['発光する個体', glowing[0], () => `ほか ${glowing.length - 1} 匹`]);
+  const hl = world.highlights;
+  const digest = hl
+    ? `<h3>見どころ（${hl.year - 5}〜${hl.year}年目）</h3>
+    <ul class="highlights">${hl.items
+      .map((it) => `<li><span>${it.icon}</span>${it.id != null ? `<button type="button" class="link" data-select="${it.id}">${it.text}</button>` : it.text}</li>`)
+      .join('')}</ul>`
+    : '<p class="muted small">5 年ごとに、この島で起きた目立つ変化を「見どころ」としてここと年代記にまとめます。</p>';
   return `
+    ${digest}
     <p>地図上の個体をクリック（タップ）すると、遺伝子型・家系・交配予測が見られます。</p>
     <h3>注目の個体</h3>
     <div class="family">

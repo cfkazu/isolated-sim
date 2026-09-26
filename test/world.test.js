@@ -281,3 +281,11 @@ test('換毛：換毛する個体は冬（12〜2 月）だけ白い毛になり�
   const a = { pheno: { ...c.pheno, albino: true } };
   assert.equal(w.coatOf(a), 'albino');
 });
+
+test('見どころ：5 年ごとに作られ、中立な耳の形を自然選択として挙げない', () => {
+  const w = new World({ seed: 'digest', initialCount: 80 });
+  for (let m = 0; m < 12 * 20; m++) w.step();
+  assert.equal(w.highlights.year, 20);
+  assert.ok(w.highlights.items.length >= 1 && w.highlights.items.length <= 4);
+  for (const it of w.highlights.items) assert.ok(!it.text.includes('耳の形（中立'), it.text);
+});

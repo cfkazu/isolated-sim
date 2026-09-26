@@ -14,6 +14,7 @@ import {
   founderShares,
   islandStats,
 } from './stats.js';
+import { makeHighlights, DIGEST_YEARS } from './highlights.js';
 import { Vegetation, BODY_RGB, contrast, groundAt, predationHazards, PREDATOR } from './ecology.js';
 
 export const DEFAULTS = {
@@ -56,6 +57,8 @@ const ALBINO_SIGHT = 0.6;
 const MT_MUTATION_RATE = 1 / 40;
 // 分家の芽が、生きている個体がこの数に育ったら家として名前を付ける
 const BRANCH_NAMED_AT = 10;
+// 家の断絶を年代記に書くのは、最盛期にこの数以上いた家だけ
+const CLAN_LOG_PEAK = 40;
 
 // 気候の大きな波（氷期と間氷期）の振れ幅（今の気温との差、℃）。
 // 地球と同じく寒い側に大きく、暖かい側に小さく振れる（最終氷期は今より 4〜7℃ 低く、前の間氷期は 1〜2℃ 高かった）
@@ -693,6 +696,7 @@ export class World {
     this._startCohort();
     this._milestones();
     this._clanEvents();
+    if (this.year > 0 && this.year % DIGEST_YEARS === 0) this._digest();
     this._resetCounters();
     if (this.opts.randomEvents) this._randomEvents();
 
@@ -792,20 +796,13 @@ export class World {
 
   // 家（母系）の栄枯盛衰。分家の独立、大きくなったことのある家が途絶えたとき、最大の家が入れ替わったときに記録する
   _clanEvents() {
-    // 分家の芽：まだ名前のない系統が生きている個体 BRANCH_NAMED_AT 匹に育ったら、家として名前を付ける
+    // 分家の芽：まだ名前のない系統が生きている個体 BRANCH_NAMED_AT 匹に育ったら、家として名前を付ける（年代記には書かない）
     const raw = new Map();
     for (const c of this.creatures) raw.set(c.mt, (raw.get(c.mt) || 0) + 1);
     for (const [mt, n] of raw) {
       const h = this.haplos.get(mt);
       if (h.established || n < BRANCH_NAMED_AT) continue;
-      const parentClan = this.clanOf(h.parent);
       h.established = true;
-      const f = this.pedigree.get(h.founderId);
-      this.addLog(
-        `🌿 ${parentClan}から${this.clanOf(mt)}が独立（${n} 匹）。祖は ${Math.floor(h.tick / 12)} 年目生まれの${h.name}（${f?.sex === 'F' ? '♀' : '♂'}）。ミトコンドリアの突然変異から始まった家。`,
-        'gene',
-        h.founderId,
-      );
     }
 
     const count = new Map();
@@ -817,6 +814,22 @@ export class World {
     const lineage = new Map();
     for (const [id, n] of count) {
       for (let h = this.haplos.get(id); h; h = this.haplos.get(h.parent)) lineage.set(h.id, (lineage.get(h.id) || 0) + n);
+    }
+    // 分家が本家（分かれた元の家）を数で上回ったら記す（家ごとに 1 回）
+    for (const [id, n] of count) {
+      const h = this.haplos.get(id);
+      if (!h.parent || h.overtook) continue;
+      const parent = this.establishedHaplo(h.parent).id;
+      const pn = count.get(parent) || 0;
+      if (n >= 30 && n > pn && pn > 0) {
+        h.overtook = true;
+        const f = this.pedigree.get(h.founderId);
+        this.addLog(
+          `🌿 分家の${this.clanOf(id)}（${n} 匹）が本家の${this.clanOf(parent)}（${pn} 匹）を上回った。祖は ${Math.floor(h.tick / 12)} 年目生まれの${h.name}（${f?.sex === 'F' ? '♀' : '♂'}）。`,
+          'gene',
+          h.founderId,
+        );
+      }
     }
     for (const [id, n] of count) {
       const p = this.clanPeak.get(id);
@@ -830,7 +843,7 @@ export class World {
         // 本家筋（分家していない者）はいなくなったが、分家が血筋をつないでいる
         if (!p.mainGone) {
           p.mainGone = true;
-          if (p.peak >= 20) {
+          if (p.peak >= CLAN_LOG_PEAK) {
             const heirs = [...count.keys()]
               .filter((c) => {
                 for (let h = this.haplos.get(c); h; h = this.haplos.get(h.parent)) if (h.parent === id) return true;
@@ -846,7 +859,7 @@ export class World {
       }
       if (p.gone) continue;
       p.gone = true;
-      if (p.peak >= 20) {
+      if (p.peak >= CLAN_LOG_PEAK) {
         const hadBranch = p.mainGone || [...this.haplos.values()].some((h) => h.established && h.parent === id);
         this.addLog(`🕯️ ${this.clanOf(id)}が${hadBranch ? '分家も含めて' : ''}途絶えた（最盛期は ${p.year} 年目の ${p.peak} 匹）。`, 'gene');
       }
@@ -860,7 +873,7 @@ export class World {
     this.rootCount = roots.size;
     let top = null;
     for (const [id, n] of count) if (!top || n > top.n) top = { id, n };
-    if (top && top.id !== this.topClan && this.year - (this.topClanSince ?? -99) >= 5) {
+    if (top && top.id !== this.topClan && this.year - (this.topClanSince ?? -99) >= 15) {
       if (this.topClan) this.addLog(`🏯 ${this.clanOf(top.id)}が${this.clanOf(this.topClan)}を抜き、島いちばんの一族になった（${top.n} 匹）。`, 'gene');
       this.topClan = top.id;
       this.topClanSince = this.year;
@@ -913,6 +926,19 @@ export class World {
         delete this.speciation[key];
       }
     }
+  }
+
+  // 5 年ごとの見どころ。年代記には見出しと各行を、個体タブには最新のものを出す
+  _digest() {
+    const { items, snapshot } = makeHighlights(this, this.digestPrev);
+    this.digestPrev = snapshot;
+    this.highlights = { year: this.year, items };
+    // 年代記には一番の見どころだけを 1 行で（全部は個体タブ）
+    const top = items[0];
+    // 目立つ変化がなければ年代記には書かない
+    if (top.score < 2) return;
+    const more = items.length > 1 ? `（ほか ${items.length - 1} 件は「個体」タブ）` : '';
+    this.addLog(`🔭 ${top.icon} ${top.text}${more}`, 'digest', top.id);
   }
 
   _milestones() {

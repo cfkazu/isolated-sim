@@ -1136,3 +1136,33 @@ details.full-genes summary {
 .save-status:empty {
   display: none;
 }
+
+/* 5 年ごとの見どころ */
+.log .digest > span:last-child {
+  padding-left: 0.6em;
+  border-left: 3px solid var(--series-1);
+}
+
+.highlights {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.highlights li {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.highlights .link {
+  text-align: left;
+}
