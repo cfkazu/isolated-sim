@@ -1,7 +1,7 @@
 // 島のシミュレーション本体。1 ステップ = 1 か月。
 
 import { createRng } from './rng.js';
-import { LOCI, randomGenome, makeGamete, fertilize, express } from './genes.js';
+import { LOCI, randomGenome, makeGamete, fertilize, express, setFreqs } from './genes.js';
 import { generateIsland, TERRAIN } from './island.js';
 import { Pedigree } from './pedigree.js';
 import { makeName } from './names.js';
@@ -15,9 +15,11 @@ import {
   islandStats,
 } from './stats.js';
 import { makeHighlights, DIGEST_YEARS } from './highlights.js';
+import { SCENARIOS, groupOf } from './scenarios.js';
 import { Vegetation, BODY_RGB, contrast, groundAt, predationHazards, PREDATOR } from './ecology.js';
 
 export const DEFAULTS = {
+  scenario: 'free',
   seed: 'island',
   initialCount: 100,
   fertility: 1.0, // 草の育ちやすさ（島の豊かさ）
@@ -107,6 +109,9 @@ export const glowDisplay = (c) => (c.pheno.glow ? c.condition : 0);
 export class World {
   constructor(options = {}) {
     this.opts = { ...DEFAULTS, ...options };
+    // シナリオの島の設定は、ふだんの設定より優先する
+    const sc = SCENARIOS[this.opts.scenario];
+    if (sc?.opts) Object.assign(this.opts, sc.opts);
     this.rng = createRng(this.opts.seed);
     const geology = this.opts.geology === 'auto' ? this.rng.pick(['lush', 'volcanic', 'coral']) : this.opts.geology;
     this.island = generateIsland(this.rng, {
@@ -123,6 +128,7 @@ export class World {
     // 気候 = 大きな波（氷期と間氷期）＋ 数十〜百年の揺らぎ ＋ 出来事（寒冷期・温暖期・超寒冷期）による押し。
     // 島は波の前半（間氷期〜寒冷化）のどこかから始まる
     this.cycleStart = Math.floor(this.rng.next() * 0.5 * this.opts.climateCycleYears);
+    if (sc?.climateStart != null) this.cycleStart = Math.floor(sc.climateStart * this.opts.climateCycleYears);
     this.climateWobble = 0;
     this.push = { kind: null, offset: 0, target: 0, years: 0, rate: 1.5 };
     this.climateOffset = this.cycleTemp(0);
@@ -147,14 +153,24 @@ export class World {
     this._resetCounters();
 
     const n = this.opts.initialCount;
+    const groupMt = new Map();
     for (let k = 0; k < n; k++) {
       const sex = k % 2 === 0 ? 'F' : 'M';
-      // 離島のある島では、最初の個体は本島だけに置く（小島は無人から始まる）。群島では広さに応じて散らばる
-      const main = this.island.landmasses[0]?.id;
-      const pos = this.opts.islandShape === 'islets' ? this.island.randomLand(this.rng, (t, c) => this.island.landmass[c] === main) : this.island.randomLand(this.rng);
-      this._spawn({
+      const gi = groupOf(sc, k, n);
+      const g = gi == null ? null : sc.groups[gi];
+      let pos;
+      if (g?.place) pos = this._placeNear(g.place);
+      else {
+        // 離島のある島では、最初の個体は本島だけに置く（小島は無人から始まる）。群島では広さに応じて散らばる
+        const main = this.island.landmasses[0]?.id;
+        pos = this.opts.islandShape === 'islets' ? this.island.randomLand(this.rng, (t, c) => this.island.landmass[c] === main) : this.island.randomLand(this.rng);
+      }
+      const genome = randomGenome(sex, this.rng, g?.origin ?? this.rng.int(2));
+      setFreqs(genome, sc?.freqs, this.rng);
+      setFreqs(genome, g?.freqs, this.rng);
+      const c = this._spawn({
         sex,
-        genome: randomGenome(sex, this.rng),
+        genome,
         ...pos,
         age: 12 + this.rng.int(84),
         fatherId: null,
@@ -162,7 +178,9 @@ export class World {
         F: 0,
         gen: 0,
         founder: true,
+        mt: g?.clan ? groupMt.get(gi) : undefined,
       });
+      if (g?.clan && !groupMt.has(gi)) groupMt.set(gi, c.mt);
     }
     this._updateEnvironment();
     this.alleleStatus = {};
@@ -170,6 +188,7 @@ export class World {
     this._recordYear();
     this._startCohort();
     this.addLog(`🏝️ ${n} 匹の生物が${this.island.geology.label}に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
+    if (sc && this.opts.scenario !== 'free') this.addLog(`📖 シナリオ「${sc.label}」：${sc.desc}`, 'event');
     this.addLog('🧭 百匹は東と西の二つの土地から来た。東と西の間の子は、子ができにくいことがある（雑種の不和合）。', 'gene');
   }
 
@@ -208,7 +227,37 @@ export class World {
     };
   }
 
-  _spawn({ sex, genome, x, y, age, fatherId, motherId, F, gen, founder = false }) {
+  // シナリオの群れの置き場所：中心 (x, y)・半径 r（島全体を 0〜1 として）の中の陸地。なければ近くの陸地
+  _placeNear({ x, y, r }) {
+    const isl = this.island;
+    const inside = (t, c) => Math.hypot(((c % isl.W) + 0.5) / isl.W - x, ((Math.floor(c / isl.W) + 0.5) / isl.H - y) * 0.75) < r;
+    if (isl.landCells.some((c) => inside(null, c))) return isl.randomLand(this.rng, inside);
+    return isl.nearestLand(x, y, 40) ?? isl.randomLand(this.rng);
+  }
+
+  // 「神の介入」と同じ出来事を起こす（シナリオの出来事にも使う）
+  applyEvent(event) {
+    switch (event) {
+      case 'epidemic':
+        return this.triggerEpidemic();
+      case 'famine':
+        return this.triggerFamine();
+      case 'cold':
+        return this.push.kind === 'cold' ? this.endClimatePush() : this.triggerColdEra();
+      case 'warm':
+        return this.push.kind === 'warm' ? this.endClimatePush() : this.triggerWarmEra();
+      case 'supercold':
+        return this.push.kind === 'super' ? this.endClimatePush() : this.triggerSuperColdEra();
+      case 'storm':
+        return this.triggerStorm();
+      case 'castaway':
+        return this.addCastaways(6);
+      case 'predators':
+        return this.releasePredators(4);
+    }
+  }
+
+  _spawn({ sex, genome, x, y, age, fatherId, motherId, F, gen, founder = false, mt: mtOverride }) {
     const pheno = express(genome);
     // 体格は遺伝だけでなく環境（栄養状態など）でもばらつく
     pheno.size = Math.max(0.6, Math.min(1.4, pheno.size * (1 + 0.04 * this.rng.normal())));
@@ -224,7 +273,10 @@ export class World {
     // まれにミトコンドリアの突然変異が起き、その子から新しい系統（分家）が始まる。
     let mt = mother?.mt;
     let branchOf = null;
-    if (founder || mt == null) {
+    if (mtOverride != null) {
+      // シナリオで同じ家として始める群れ
+      mt = mtOverride;
+    } else if (founder || mt == null) {
       mt = this._newHaplo({ name, parent: null, founderId: id, established: true });
     } else if (this.rng.next() < MT_MUTATION_RATE) {
       mt = this._newHaplo({ name, parent: mt, founderId: id, established: false });
@@ -774,6 +826,7 @@ export class World {
     this._milestones();
     this._clanEvents();
     if (this.year > 0 && this.year % DIGEST_YEARS === 0) this._digest();
+    for (const e of SCENARIOS[this.opts.scenario]?.events ?? []) if (e.year === this.year) this.applyEvent(e.event);
     this._resetCounters();
     if (this.opts.randomEvents) this._randomEvents();
 

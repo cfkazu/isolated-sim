@@ -1189,3 +1189,16 @@ details.full-genes summary {
 .ctrait.down {
   border-color: var(--grid);
 }
+
+.scenario-box {
+  border: 1px solid var(--series-1);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: var(--surface);
+}
+
+.scenario-box ul {
+  margin: 6px 0 4px;
+  padding-left: 1.2em;
+}

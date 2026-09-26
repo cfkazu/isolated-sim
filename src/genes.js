@@ -368,6 +368,23 @@ export function randomGenome(sex, rng, origin = rng.int(2)) {
   return { m, p };
 }
 
+// 遺伝子の割合を指定して選び直す（シナリオ用）。freqs = { 遺伝子座: { 対立遺伝子: 重み } }。書いていない対立遺伝子は 0
+export function setFreqs(genome, freqs, rng) {
+  if (!freqs) return;
+  for (const [key, dist] of Object.entries(freqs)) {
+    const i = INDEX[key];
+    const locus = LOCUS[key];
+    if (i == null) continue;
+    const w = locus.alleles.map((a) => dist[a] ?? 0);
+    // 1 つしか書いていない 2 対立遺伝子の座は、残りをもう一方に回す（{ W: 0.08 } → b が 0.92）
+    const sum = w.reduce((t, v) => t + v, 0);
+    if (locus.alleles.length === 2 && Object.keys(dist).length === 1 && sum < 1) w[w.indexOf(0)] = 1 - sum;
+    if (w.every((v) => v <= 0)) continue;
+    genome.m[i] = locus.alleles[rng.weightedIndex(w)];
+    if (genome.p[i] !== null) genome.p[i] = locus.alleles[rng.weightedIndex(w)];
+  }
+}
+
 export function mutate(locus, allele, rng) {
   if (locus.lof) {
     // 機能喪失型：正常→壊れた、は起きやすいが、逆向きの復帰突然変異はまれ

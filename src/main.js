@@ -394,35 +394,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   const w = state.world;
-  switch (t.dataset.event) {
-    case 'epidemic':
-      w.triggerEpidemic();
-      break;
-    case 'famine':
-      w.triggerFamine();
-      break;
-    case 'cold':
-      if (w.push.kind === 'cold') w.endClimatePush();
-      else w.triggerColdEra();
-      break;
-    case 'warm':
-      if (w.push.kind === 'warm') w.endClimatePush();
-      else w.triggerWarmEra();
-      break;
-    case 'storm':
-      w.triggerStorm();
-      break;
-    case 'supercold':
-      if (w.push.kind === 'super') w.endClimatePush();
-      else w.triggerSuperColdEra();
-      break;
-    case 'castaway':
-      w.addCastaways(6);
-      break;
-    case 'predators':
-      w.releasePredators(4);
-      break;
-  }
+  if (t.dataset.event) w.applyEvent(t.dataset.event);
   switch (t.dataset.action) {
     case 'pin':
       state.pinnedId = state.selectedId;

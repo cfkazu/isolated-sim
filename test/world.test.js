@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Pedigree } from '../src/pedigree.js';
 import { World } from '../src/world.js';
+import { LOCI } from '../src/genes.js';
 
 function ped(entries) {
   const p = new Pedigree();
@@ -298,4 +299,20 @@ test('警戒声：声を聞くのは、島の中の無作為な相手より近�
   const r = recs.reduce((t, a) => t + a.r, 0) / recs.length;
   const r0 = recs.reduce((t, a) => t + a.rRandom, 0) / recs.length;
   assert.ok(r > 1.5 * r0, `r=${r.toFixed(3)} r0=${r0.toFixed(3)}`);
+});
+
+test('シナリオ：どのシナリオも始められ、群れは決めた場所に同じ家として置かれる', async () => {
+  const { SCENARIOS } = await import('../src/scenarios.js');
+  for (const key of Object.keys(SCENARIOS)) {
+    const w = new World({ seed: `sc-${key}`, scenario: key });
+    for (let m = 0; m < 12 * 3; m++) w.step();
+    assert.ok(w.history.length >= 3, key);
+  }
+  const v = new World({ seed: 'villages', scenario: 'villages' });
+  const founders = v.creatures.filter((c) => c.founder);
+  assert.equal(new Set(founders.map((c) => c.mt)).size, 4);
+  for (const c of founders) assert.ok(Math.hypot(c.x - 0.5, (c.y - 0.5) * 0.75) > 0.05);
+  const ew = new World({ seed: 'eastwest', scenario: 'eastwest' });
+  const east = ew.creatures.filter((c) => c.x > 0.5);
+  assert.ok(east.every((c) => c.genome.m[LOCI.findIndex((l) => l.key === 'HA1')] === 'n'));
 });

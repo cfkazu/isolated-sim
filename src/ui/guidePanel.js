@@ -4,6 +4,7 @@ import { LOCI, CHROMOSOMES, INHERITANCE } from '../genes.js';
 import { DEFAULTS, CLIMATE_AMPLITUDE } from '../world.js';
 import { ISLAND_SHAPES, GEOLOGY } from '../island.js';
 import { alleleLabel } from './panelUtil.js';
+import { SCENARIOS } from '../scenarios.js';
 
 export function renderGuide(el) {
   const byMode = {};
@@ -51,11 +52,21 @@ export function renderGuide(el) {
 
 // ───────────────────────── 設定 ─────────────────────────
 
+function scenarioHint(key) {
+  const sc = SCENARIOS[key] ?? SCENARIOS.free;
+  const fixed = Object.keys(sc.opts ?? {}).length ? '（このシナリオでは、島の形・地質・個体数などの一部をシナリオが決めます）' : '';
+  return `${sc.desc}${fixed}`;
+}
+
 export function renderSettings(el, opts, onChange, onRestart) {
   const o = { ...DEFAULTS, ...opts };
   el.innerHTML = `<div class="settings">
     <h2>新しい島の条件</h2>
     <p class="hint">これらは「この設定で新しい島を始める」を押したときに反映されます。</p>
+    <label class="field">シナリオ（島の始まり方）<select name="scenario">${Object.entries(SCENARIOS)
+      .map(([k, v]) => `<option value="${k}" ${o.scenario === k ? 'selected' : ''}>${v.label}</option>`)
+      .join('')}</select></label>
+    <p class="hint" id="scenario-desc">${scenarioHint(o.scenario)}</p>
     <label class="field">シード（同じシードなら同じ島・同じ歴史）<input type="text" name="seed" value="${String(o.seed).replace(/"/g, '&quot;')}"></label>
     <label class="field">島の形<select name="islandShape">${Object.entries(ISLAND_SHAPES)
       .map(([k, v]) => `<option value="${k}" ${o.islandShape === k ? 'selected' : ''}>${v.label}</option>`)
@@ -100,6 +111,7 @@ export function renderSettings(el, opts, onChange, onRestart) {
     const v = t.type === 'checkbox' ? t.checked : t.type === 'number' || t.dataset.num ? Number(t.value) : t.value;
     if (t.type === 'number' && !Number.isFinite(v)) return;
     onChange(t.name, v);
+    if (t.name === 'scenario') el.querySelector('#scenario-desc').textContent = scenarioHint(v);
   });
   el.addEventListener('click', (e) => {
     const a = e.target.closest('[data-action]')?.dataset.action;

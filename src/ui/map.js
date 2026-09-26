@@ -42,7 +42,7 @@ export const DISPLAY_LEGENDS = {
     ['雑種（子ができにくい）', '#c0307a'],
     ['祖先型のみ', '#9a9a9a'],
   ],
-  clan: () => [['家（母系）ごとの色。同じ家は近くに固まって住む', 'conic-gradient(#e0892e, #2f7fd8, #3aa655, #c0307a, #e0892e)']],
+  clan: () => [['家（母系）ごとの色。分家は大本の家と同じ色合いで明るさ違い', 'conic-gradient(#e0892e, #2f7fd8, #3aa655, #c0307a, #e0892e)']],
   alarm: () => [
     ['いつも鳴く（V/V）', '#d9480f'],
     ['ときどき鳴く（V/v）', '#f59f00'],
@@ -142,8 +142,11 @@ export class MapView {
         return e == null ? '#9a9a9a' : lerpColor('#e0892e', '#2f7fd8', e);
       }
       case 'clan': {
-        const id = this.world?.establishedHaplo(c.mt)?.id ?? 0;
-        return `hsl(${(id * 137.508) % 360}, 65%, ${45 + ((id * 7) % 3) * 8}%)`;
+        // 色合いは大本の家（創始者の系統）で決め、分家は同じ色合いで明るさを変える
+        const h = this.world?.establishedHaplo(c.mt);
+        const root = h?.root ?? h?.id ?? 0;
+        const branch = h && h.id !== root ? 1 + ((h.id * 7) % 3) : 0;
+        return `hsl(${(root * 137.508) % 360}, 65%, ${45 + [0, -12, 12, 22][branch]}%)`;
       }
       case 'alarm':
         return c.pheno.alarm === 1 ? '#d9480f' : c.pheno.alarm > 0 ? '#f59f00' : '#9a9a9a';

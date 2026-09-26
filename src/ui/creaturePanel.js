@@ -19,6 +19,7 @@ import { DEATH_CAUSES, tailDisplay, glowDisplay } from '../world.js';
 import { TERRAIN_LABEL } from '../island.js';
 import { createRng } from '../rng.js';
 import { drawCreature } from './creatureArt.js';
+import { SCENARIOS } from '../scenarios.js';
 import { pct, idLink, sexMark, sexLabel, ageLabel } from './panelUtil.js';
 
 export function renderCreaturePanel(el, world, c, pinned) {
@@ -272,6 +273,17 @@ function renderPrediction(world, mother, father) {
     </div>`;
 }
 
+const EVENT_LABEL = {
+  epidemic: '疫病',
+  famine: '干ばつ',
+  cold: '寒冷期',
+  warm: '温暖期',
+  supercold: '超寒冷期',
+  storm: '大嵐',
+  castaway: '漂着者',
+  predators: '捕食者の上陸',
+};
+
 function renderNotables(world) {
   const cs = world.creatures;
   if (cs.length === 0) return '<p class="muted">生き残っている個体はいません。</p>';
@@ -292,7 +304,15 @@ function renderNotables(world) {
       .map((it) => `<li><span>${it.icon}</span>${it.id != null ? `<button type="button" class="link" data-select="${it.id}">${it.text}</button>` : it.text}</li>`)
       .join('')}</ul>`
     : '<p class="muted small">5 年ごとに、この島で起きた目立つ変化を「見どころ」としてここと年代記にまとめます。</p>';
+  const sc = SCENARIOS[world.opts.scenario];
+  const scenario =
+    sc && world.opts.scenario !== 'free'
+      ? `<div class="scenario-box"><strong>📖 シナリオ「${sc.label}」</strong><div class="small">${sc.desc}</div>${
+          sc.watch?.length ? `<ul class="small">${sc.watch.map((w) => `<li>${w}</li>`).join('')}</ul>` : ''
+        }${sc.events?.length ? `<div class="small muted">予定：${sc.events.map((e) => `${e.year} 年目に${EVENT_LABEL[e.event] ?? e.event}`).join('、')}</div>` : ''}</div>`
+      : '';
   return `
+    ${scenario}
     ${digest}
     <p>地図上の個体をクリック（タップ）すると、遺伝子型・家系・交配予測が見られます。</p>
     <h3>注目の個体</h3>
