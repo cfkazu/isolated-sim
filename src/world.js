@@ -25,7 +25,8 @@ export const DEFAULTS = {
   initialCount: 100,
   fertility: 1.0, // 草の育ちやすさ（島の豊かさ）
   islandShape: 'single', // 島の形：'single'（ひとつの島）・'islets'（離島のある島）・'archipelago'（群島）
-  geology: 'auto', // 地質：'auto'（シードで決まる）・'lush'・'volcanic'・'coral'
+  geology: 'auto', // 地質：'auto'（シードで決まる）・'lush'・'volcanic'・'coral'・'mixed'（島ごとにばらばら）
+  latitude: 0, // 南北の気温差：北端が何 ℃ 寒く、南端が何 ℃ 暖かいか
   maxAgeYears: 15, // この年齢で必ず死ぬ
   maturityMonths: 24,
   mutationRate: 0.0005, // 1 配偶子・1 遺伝子座あたり
@@ -59,7 +60,7 @@ const ALBINO_SIGHT = 0.6;
 // 相手と出会う距離のめやす（島の幅に対する割合）。ふだん歩き回る範囲（縄張り）と同じくらい
 const MATE_REACH = 0.05;
 // 近くで相手に出会えなかったメスが、遠くまで探しに行く確率（1 か月あたり）
-const FAR_SEARCH = 0.35;
+const FAR_SEARCH = 0.6;
 // 警戒声：鳴いた本人は目立つ（見つけやすさ × (1 + ALARM_COST)）。知らされた周りの個体は隠れる（× (1 − ALARM_BENEFIT)）。
 // 声が届くのは、同じ草のマスとその隣のマス（おおよそ島の幅の 2.5〜6%）
 const ALARM_COST = 0.3;
@@ -195,7 +196,7 @@ export class World {
     this.cohort = [];
     this._recordYear();
     this._startCohort();
-    this.addLog(`🏝️ ${n} 匹の生物が${this.island.geology.label}に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
+    this.addLog(`🏝️ ${n} 匹の生物が${this.island.geologyLabel}に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
     if (sc !== SCENARIOS.free) this.addLog(`📖 シナリオ「${sc.label}」${sc.desc ? `：${sc.desc}` : ''}`, 'event');
     this.addLog('🧭 百匹は東と西の二つの土地から来た。東と西の間の子は、子ができにくいことがある（雑種の不和合）。', 'gene');
   }
@@ -377,28 +378,29 @@ export class World {
     this.snowCover = this._snowCover();
   }
 
-  // その場所の気温：海沿いは暖かく、山の上ほど寒い（標高 0 で +7℃、標高 1 で -13℃）
-  localTemp(elevation) {
-    return this.currentTemp + 7 - 20 * elevation;
+  // その場所の気温：海沿いは暖かく、山の上ほど寒い（標高 0 で +7℃、標高 1 で -13℃）。
+  // 南北の気温差（opts.latitude）があれば、地図の上端（北）は latitude ℃ 寒く、下端（南）は latitude ℃ 暖かい
+  localTemp(elevation, y = 0.5) {
+    return this.currentTemp + 7 - 20 * elevation + (this.opts.latitude ?? 0) * (2 * y - 1);
   }
 
   // 砂浜以外の陸地のうち、雪に覆われている割合
   _snowCover() {
-    const { terrain, elevation } = this.island;
+    const { terrain, elevation, W, H } = this.island;
     let snow = 0;
     let land = 0;
     for (let i = 0; i < terrain.length; i++) {
       const t = terrain[i];
       if (t === TERRAIN.SEA || t === TERRAIN.BEACH) continue;
       land++;
-      if (elevation[i] > this.snowLine) snow++;
+      if (this.localTemp(elevation[i], (Math.floor(i / W) + 0.5) / H) < 0) snow++;
     }
     return land ? snow / land : 0;
   }
 
   isSnowAt(x, y) {
     const t = this.island.terrainAt(x, y);
-    return t !== TERRAIN.BEACH && this.island.elevationAt(x, y) > this.snowLine;
+    return t !== TERRAIN.BEACH && t !== TERRAIN.SEA && this.localTemp(this.island.elevationAt(x, y), y) < 0;
   }
 
   // いまの毛色：アルビノは一年中色なし。換毛の遺伝子を持つと冬（12〜2 月、日の長さで決まる）は白い毛になる
@@ -472,7 +474,7 @@ export class World {
     const o = this.opts;
     const maxAge = o.maxAgeYears * 12;
 
-    this.vegetation.grow((e) => this.localTemp(e), this.famineMonths > 0);
+    this.vegetation.grow((e, y) => this.localTemp(e, y), this.famineMonths > 0);
     this._feed();
     const epidemic = this.epidemicMonths > 0;
 
@@ -510,7 +512,7 @@ export class World {
       h[1] = predHazard[i];
       // 気候：毛皮と体格で最適温度が変わる（ベルクマンの法則）
       // いる場所の気温で寒さ・暑さを感じる（山の上は寒く、海辺は暖かい）
-      const excess = this._thermalStress(ph, this.island.elevationAt(c.x, c.y));
+      const excess = this._thermalStress(ph, this.island.elevationAt(c.x, c.y), c.y);
       h[2] = 0.0022 * Math.pow(excess, 1.4);
       // 病気：免疫型（超優性）
       const vuln = 1 - ph.resistance;
@@ -564,8 +566,8 @@ export class World {
   }
 
   // 標高 elevation の場所での寒さ・暑さのつらさ（快適な範囲 ±9℃ を超えた分）
-  _thermalStress(ph, elevation) {
-    return Math.max(0, Math.abs(this.localTemp(elevation) - this._optimalTemp(ph)) - 9);
+  _thermalStress(ph, elevation, y = 0.5) {
+    return Math.max(0, Math.abs(this.localTemp(elevation, y) - this._optimalTemp(ph)) - 9);
   }
 
   // 歩いて行けるのは同じ陸地の中だけ（海は泳いで渡れない）
@@ -677,7 +679,7 @@ export class World {
     c.hy += (c.y - c.hy) * HOME_DRIFT;
     // お腹が空いている・寒すぎる（暑すぎる）ときは、隣の草のマスの中から
     // 「草の量 ÷ (先客 + 1)」を「気温のつらさ」で割り引いた値が一番よい方へ移る（採餌と、山を下りる／登る）
-    const stressHere = this._thermalStress(c.pheno, this.island.elevationAt(c.x, c.y));
+    const stressHere = this._thermalStress(c.pheno, this.island.elevationAt(c.x, c.y), c.y);
     if ((c.hunger > 0.05 || stressHere > 0) && c.age >= 6) {
       const veg = this.vegetation;
       const here = veg.cellAt(c.x, c.y);
@@ -697,7 +699,7 @@ export class World {
           const nx = (fx + this.rng.next()) / veg.FW;
           const ny = (fy + this.rng.next()) / veg.FH;
           if (!this._sameLand(c, nx, ny)) continue;
-          const sc = score(veg.edible(f) / ((occ ? occ[f] : 0) + 1), this._thermalStress(c.pheno, this.island.elevationAt(nx, ny)));
+          const sc = score(veg.edible(f) / ((occ ? occ[f] : 0) + 1), this._thermalStress(c.pheno, this.island.elevationAt(nx, ny), ny));
           if (sc <= bestScore) continue;
           bestScore = sc;
           best = [nx, ny, f];

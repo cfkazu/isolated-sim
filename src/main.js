@@ -182,9 +182,9 @@ function previewDraft(d) {
 // 今の島から：地質・形・シードと、今の遺伝子の割合を写す
 function draftFromWorld(w) {
   const d = draftFrom('free');
-  d.label = `${w.island.geology.label}の続き`;
+  d.label = `${w.island.geologyLabel}の続き`;
   d.desc = `${w.year} 年目の島の遺伝子の割合から始める。`;
-  d.opts = { islandShape: w.opts.islandShape, geology: w.island.geologyKey, seed: String(w.opts.seed) };
+  d.opts = { islandShape: w.opts.islandShape, geology: w.island.geologyKey, latitude: w.opts.latitude ?? 0, seed: String(w.opts.seed) };
   const f = w.history.at(-1)?.freqs;
   if (!f || !w.creatures.length) return d;
   for (const t of TRAIT_DEFS) d.traits[t.key] = +(t.loci.reduce((sum, k) => sum + (f[k]?.[t.allele] ?? 0), 0) / t.loci.length).toFixed(3);
@@ -201,8 +201,12 @@ const THUMB_GEOLOGY = Object.keys(GEOLOGY);
 const start = { shown: false, seedBase: '', pick: null, scenario: 'free', timer: 0 };
 
 const newSeedBase = () => Math.random().toString(36).slice(2, 6);
-const thumbList = () =>
-  THUMB_GEOLOGY.flatMap((geology) => THUMB_SHAPES.map((shape) => ({ shape, geology, seed: `${start.seedBase}${geology[0]}${shape[0]}` })));
+// 形 × 地質の 9 つと、島ごとに地質の違う 2 つ（離島・群島。北ほど寒い）
+const thumbList = () => [
+  ...THUMB_GEOLOGY.flatMap((geology) => THUMB_SHAPES.map((shape) => ({ shape, geology, latitude: 0, seed: `${start.seedBase}${geology[0]}${shape[0]}` }))),
+  ...['islets', 'archipelago'].map((shape) => ({ shape, geology: 'mixed', latitude: 3, seed: `${start.seedBase}x${shape[0]}` })),
+];
+const geoLabel = (g) => (g === 'mixed' ? '島ごとに違う地質' : GEOLOGY[g].label);
 
 function scenarioData(value) {
   if (value?.startsWith('custom:')) return findCustom(value.slice(7)) ?? SCENARIOS.free;
@@ -220,7 +224,7 @@ function renderStartScreen() {
   ];
   const w = state.world;
   const shapeLabel = ISLAND_SHAPES[w.opts.islandShape]?.label ?? '';
-  const fixedNote = [fixed.islandShape && `島の形は「${ISLAND_SHAPES[fixed.islandShape].label}」`, fixed.geology && fixed.geology !== 'auto' && `地質は「${GEOLOGY[fixed.geology].label}」`]
+  const fixedNote = [fixed.islandShape && `島の形は「${ISLAND_SHAPES[fixed.islandShape].label}」`, fixed.geology && fixed.geology !== 'auto' && `地質は「${geoLabel(fixed.geology)}」`]
     .filter(Boolean)
     .join('、');
   el.innerHTML = `<div class="start-inner">
@@ -231,7 +235,7 @@ function renderStartScreen() {
         const off = (fixed.islandShape && fixed.islandShape !== t.shape) || (fixed.geology && fixed.geology !== 'auto' && fixed.geology !== t.geology);
         const on = start.pick?.seed === t.seed;
         return `<button type="button" class="start-thumb" data-thumb="${i}" aria-pressed="${on}" ${off ? 'disabled title="このシナリオでは選べません"' : ''}>
-          <canvas data-thumb-canvas="${i}"></canvas><span>${esc(GEOLOGY[t.geology].label)}・${esc(ISLAND_SHAPES[t.shape].label)}</span></button>`;
+          <canvas data-thumb-canvas="${i}"></canvas><span>${esc(geoLabel(t.geology))}・${esc(ISLAND_SHAPES[t.shape].label)}${t.latitude ? '・北ほど寒い' : ''}</span></button>`;
       })
       .join('')}</div>
     <h3>② 始まり方</h3>
@@ -241,7 +245,7 @@ function renderStartScreen() {
           `<button type="button" class="start-card" data-start="${esc(c.value)}" aria-pressed="${c.value === start.scenario}"><strong>${esc(c.label)}</strong><span>${esc(c.desc)}</span></button>`,
       )
       .join('')}</div>
-    <p class="start-picked">左の地図：<strong>${esc(w.island.geology.label)}・${esc(shapeLabel)}</strong>（シード ${esc(w.opts.seed)}）${
+    <p class="start-picked">左の地図：<strong>${esc(w.island.geologyLabel)}・${esc(shapeLabel)}${w.opts.latitude ? '・北ほど寒い' : ''}</strong>（シード ${esc(w.opts.seed)}）${
       fixedNote ? `<br><span class="muted small">このシナリオでは${esc(fixedNote)}になります。</span>` : ''
     }</p>
     <div class="btn-row start-actions">
@@ -260,7 +264,7 @@ function paintThumbs() {
     if (!start.shown || i >= list.length) return;
     const t = list[i];
     const canvas = document.querySelector(`[data-thumb-canvas="${i}"]`);
-    if (canvas) drawThumbnail(canvas, new World({ seed: t.seed, islandShape: t.shape, geology: t.geology, initialCount: 2 }));
+    if (canvas) drawThumbnail(canvas, new World({ seed: t.seed, islandShape: t.shape, geology: t.geology, latitude: t.latitude, initialCount: 2 }));
     i++;
     start.timer = setTimeout(next, 0);
   };
@@ -270,7 +274,7 @@ function paintThumbs() {
 // 選んだ島と始まり方で、0 年目の島を作って左の地図に出す
 function previewStart() {
   chooseScenario(start.scenario);
-  if (start.pick) Object.assign(state.opts, { seed: start.pick.seed, islandShape: start.pick.shape, geology: start.pick.geology });
+  if (start.pick) Object.assign(state.opts, { seed: start.pick.seed, islandShape: start.pick.shape, geology: start.pick.geology, latitude: start.pick.latitude });
   renderSettings(...settingsArgs);
   // 「続きから」の案内は消さない（まだ選んでいる途中なので）
   save.tick = -1;

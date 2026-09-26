@@ -346,3 +346,19 @@ test('自作シナリオ：検査で危ない値を直し、形質の指定を�
   for (let m = 0; m < 12 * 4; m++) w.step();
   assert.ok(w.log.some((e) => e.text.includes('超寒冷期') || e.text.includes('氷')));
 });
+
+test('島ごとの地質と南北の気温差：群島の島ごとに地質が違い、北ほど寒い', async () => {
+  const { GEO_KEYS } = await import('../src/island.js');
+  const w = new World({ seed: 'mixed', islandShape: 'archipelago', geology: 'mixed', latitude: 3 });
+  const isl = w.island;
+  const geos = new Set();
+  for (const m of isl.landmasses) {
+    const i = isl.landmass.indexOf(m.id);
+    if (i >= 0) geos.add(GEO_KEYS[isl.geoMap[i]]);
+  }
+  assert.ok(geos.size >= 2, [...geos].join(','));
+  assert.ok(w.localTemp(0.2, 0) < w.localTemp(0.2, 1) - 5.9);
+  // 気温差なしなら、南北で同じ
+  const u = new World({ seed: 'mixed', islandShape: 'archipelago' });
+  assert.equal(u.localTemp(0.2, 0), u.localTemp(0.2, 1));
+});

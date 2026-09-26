@@ -94,7 +94,15 @@ export function renderSettings(el, opts, onChange, onRestart, extra = {}) {
       <option value="auto" ${o.geology === 'auto' ? 'selected' : ''}>おまかせ（シードで決まる）</option>
       ${Object.entries(GEOLOGY)
         .map(([k, v]) => `<option value="${k}" ${o.geology === k ? 'selected' : ''}>${v.label}</option>`)
-        .join('')}</select></label>
+        .join('')}
+      <option value="mixed" ${o.geology === 'mixed' ? 'selected' : ''}>島ごとにばらばら（離島・群島向け）</option></select></label>
+    <label class="field">南北の気温差<select name="latitude" data-num="1">${[
+      [0, 'なし'],
+      [3, '小さい（北端 −3℃・南端 +3℃）'],
+      [6, '大きい（北端 −6℃・南端 +6℃）'],
+    ]
+      .map(([v, l]) => `<option value="${v}" ${Number(o.latitude ?? 0) === v ? 'selected' : ''}>${l}</option>`)
+      .join('')}</select></label>
     <p class="hint">${Object.values(GEOLOGY)
       .map((v) => `<strong>${v.label}</strong>：${v.desc}`)
       .join('<br>')}</p>

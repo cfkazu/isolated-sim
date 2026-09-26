@@ -70,7 +70,8 @@ export class Vegetation {
         const f = Math.floor(y / FOOD_CELL) * this.FW + Math.floor(x / FOOD_CELL);
         const i = y * island.W + x;
         const t = island.terrain[i];
-        cap[f] += t === TERRAIN.BEACH ? island.geology.beachCap : t === TERRAIN.ROCK ? island.geology.rockCap : TERRAIN_CAP[t];
+        const g = island.geologyAt(i);
+        cap[f] += t === TERRAIN.BEACH ? g.beachCap : t === TERRAIN.ROCK ? g.rockCap : TERRAIN_CAP[t];
         count[f]++;
         if (island.terrain[i] !== TERRAIN.SEA) {
           elev[f] += island.elevation[i];
@@ -137,13 +138,13 @@ export class Vegetation {
   }
 
   // その場所の気温で成長速度が決まる（ロジスティック成長）。0℃ 以下（雪の下）では育たない。
-  // localTemp(標高) は標高が高いほど寒い。
+  // localTemp(標高, 南北の位置) は標高が高いほど、北ほど寒い。
   grow(localTemp, drought) {
     const dk = drought ? 0.25 : 1;
     for (let i = 0; i < this.veg.length; i++) {
       const K = this.cap[i];
       if (K <= 0) continue;
-      const r = 0.45 * Math.max(0, Math.min(1, localTemp(this.elev[i]) / 16)) * dk;
+      const r = 0.45 * Math.max(0, Math.min(1, localTemp(this.elev[i], (Math.floor(i / this.FW) + 0.5) / this.FH) / 16)) * dk;
       if (r === 0) continue;
       const v = this.veg[i];
       // 食べ尽くされても根や地下茎から伸び直すので、成長の勢いは「根の分」を下回らない
@@ -172,8 +173,8 @@ export function groundAt(world, x, y) {
 export function groundOfCell(world, i) {
   const island = world.island;
   const t = island.terrain[i];
-  if (t !== TERRAIN.BEACH && t !== TERRAIN.SEA && world.localTemp(island.elevation[i]) < 0) return GROUND_RGB.snow;
-  const g = island.geology;
+  if (t !== TERRAIN.BEACH && t !== TERRAIN.SEA && world.localTemp(island.elevation[i], (Math.floor(i / island.W) + 0.5) / island.H) < 0) return GROUND_RGB.snow;
+  const g = island.geologyAt(i);
   if (t === TERRAIN.BEACH) return g.sand;
   const frac = Math.min(1, world.vegetation.smoothFraction(i) * 1.15);
   // 岩場にもまばらに草が生える島がある（火山島の溶岩台地など）

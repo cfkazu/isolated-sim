@@ -77,7 +77,11 @@ export const ISLAND_SHAPES = {
 };
 
 export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer = null, geology = 'lush' } = {}) {
-  if (shape === 'archipelago') return generateArchipelago(rng, W, H, namer, geology);
+  if (shape === 'archipelago') {
+    const isl = generateArchipelago(rng, W, H, namer, geology);
+    if (geology === 'mixed') isl.assignMixedGeology(rng);
+    return isl;
+  }
   const island = generateSingle(rng, W, H, shape === 'islets' ? 1.05 : 0.75, namer, geology);
   if (shape === 'islets') {
     const n = 2 + rng.int(2);
@@ -86,8 +90,12 @@ export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer 
       island.reclassify();
     }
   }
+  if (geology === 'mixed') island.assignMixedGeology(rng);
   return island;
 }
+
+// 地質の番号（マスごとの地質の地図 geoMap に入れる）
+export const GEO_KEYS = Object.keys(GEOLOGY);
 
 // 群島：いくつかの高まりを散らし、ある程度の大きさ（150 マス以上）の陸地をすべて島として残す
 function generateArchipelago(rng, W, H, namer, geology) {
@@ -213,8 +221,12 @@ export class Island {
     this.elevation = height; // 名前は昔のまま（標高）。海は負
     this.moisture = moisture;
     this.seaLevel = 0;
+    // 地質はマスごとに持つ（geoMap）。'mixed' なら島ごとに違う地質になる（assignMixedGeology で決める）。
+    // 陸橋でつながっても、それぞれの土地の色や草の生え方は元のまま
     this.geologyKey = geology;
-    this.geology = GEOLOGY[geology] ?? GEOLOGY.lush;
+    const base = GEOLOGY[geology] ? geology : 'lush';
+    this.geology = GEOLOGY[base]; // いちばん大きい島の地質（名前の表示用）
+    this.geoMap = new Uint8Array(W * H).fill(GEO_KEYS.indexOf(base));
     this.terrain = new Uint8Array(W * H);
     this.landmass = new Int32Array(W * H).fill(-1); // 陸地のつながりの番号（海は -1）
     this.landmasses = []; // { id, size, name, cx, cy }
@@ -225,6 +237,49 @@ export class Island {
     this.homeId = new Int32Array(W * H).fill(-1);
     this.homeSize = new Int32Array(W * H).fill(0);
     this.archive = new Map(); // id → 名前
+    this.reclassify();
+  }
+
+  geologyAt(i) {
+    return GEOLOGY[GEO_KEYS[this.geoMap[i]]];
+  }
+
+  get geologyLabel() {
+    return this.geologyKey === 'mixed' ? '島ごとに地質の違う島々' : this.geology.label;
+  }
+
+  // 島ごとにばらばらの地質：生まれたときの陸地のつながりごとに、大きい順に地質を順番に割り当てる
+  // （3 つ以上の島があれば 3 種類とも現れる）。海のマスは、いちばん近い島の地質にする（浅瀬が陸になったとき用）
+  assignMixedGeology(rng) {
+    const { W, H } = this;
+    const comps = labelComponents(W, H, (i) => this.elevation[i] > this.seaLevel);
+    const order = [...comps.sizes.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    const keys = [...GEO_KEYS];
+    for (let i = keys.length - 1; i > 0; i--) {
+      const j = rng.int(i + 1);
+      [keys[i], keys[j]] = [keys[j], keys[i]];
+    }
+    const geoOfComp = new Map(order.map((c, k) => [c, GEO_KEYS.indexOf(keys[k % keys.length])]));
+    const done = new Uint8Array(W * H);
+    const queue = [];
+    for (let i = 0; i < W * H; i++) {
+      const c = comps.label[i];
+      if (c < 0) continue;
+      this.geoMap[i] = geoOfComp.get(c);
+      done[i] = 1;
+      queue.push(i);
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q];
+      const x = i % W;
+      for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i - W, i + W]) {
+        if (j < 0 || j >= W * H || done[j]) continue;
+        done[j] = 1;
+        this.geoMap[j] = this.geoMap[i];
+        queue.push(j);
+      }
+    }
+    if (order.length) this.geology = GEOLOGY[keys[0]];
     this.reclassify();
   }
 
@@ -253,9 +308,9 @@ export class Island {
   // 標高・海面・湿り気から地形を決め直し、陸地のつながりに番号と名前をふり直す
   reclassify() {
     const { W, H, elevation: h, moisture, terrain, seaLevel } = this;
-    const { beachBand, rockAbove, forestBias } = this.geology;
     this.landCells = [];
     for (let i = 0; i < W * H; i++) {
+      const { beachBand, rockAbove, forestBias } = this.geologyAt(i);
       const e = h[i] - seaLevel;
       let t;
       if (e <= 0) t = TERRAIN.SEA;

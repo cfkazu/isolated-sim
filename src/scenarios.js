@@ -165,7 +165,8 @@ function cleanOpts(raw) {
   const o = {};
   if (!raw || typeof raw !== 'object') return o;
   if (ISLAND_SHAPES[raw.islandShape]) o.islandShape = raw.islandShape;
-  if (raw.geology === 'auto' || GEOLOGY[raw.geology]) o.geology = raw.geology;
+  if (raw.geology === 'auto' || raw.geology === 'mixed' || GEOLOGY[raw.geology]) o.geology = raw.geology;
+  if (raw.latitude != null) o.latitude = num(raw.latitude, 0, 10, 0);
   if (raw.initialCount != null) o.initialCount = Math.round(num(raw.initialCount, 2, 1000, 100));
   if (raw.fertility != null) o.fertility = num(raw.fertility, 0.1, 5, 1);
   if (raw.initialPredators != null) o.initialPredators = Math.round(num(raw.initialPredators, 0, 100, 6));

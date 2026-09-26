@@ -9,7 +9,7 @@ import { Vegetation } from './ecology.js';
 import { Pedigree } from './pedigree.js';
 import { makeName } from './names.js';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 const COLORS = ['black', 'green', 'white'];
 const PATTERNS = ['spots', 'stripes', 'both', 'plain'];
@@ -147,7 +147,7 @@ export function snapshot(world) {
   return {
     version: SAVE_VERSION,
     savedAt: Date.now(),
-    summary: { year: world.year, pop: world.creatures.length, seed: world.opts.seed, geology: isl.geology.label },
+    summary: { year: world.year, pop: world.creatures.length, seed: world.opts.seed, geology: isl.geologyLabel },
     state,
     rng: world.rng.getState(),
     island: {
@@ -157,6 +157,7 @@ export function snapshot(world) {
       moisture: isl.moisture,
       seaLevel: isl.seaLevel,
       geologyKey: isl.geologyKey,
+      geoMap: isl.geoMap,
       landmass: isl.landmass,
       landmasses: isl.landmasses,
       homeId: isl.homeId,
@@ -189,6 +190,10 @@ export function restore(snap) {
   const namer = (id) => `${makeName(w.opts.seed, `isle${id}`)}島`;
   const island = new Island(s.W, s.H, new Float32Array(s.elevation), new Float32Array(s.moisture), namer, s.geologyKey);
   // 島の番号と名前を保存時のものにそろえてから地形を決め直す（重なりで番号を引き継ぐので同じになる）
+  if (s.geoMap) {
+    island.geoMap = new Uint8Array(s.geoMap);
+    island.geology = island.geologyAt(island.landCells[0] ?? 0);
+  }
   island.seaLevel = s.seaLevel;
   island.landmass = new Int32Array(s.landmass);
   island.landmasses = s.landmasses;
