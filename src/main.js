@@ -2,7 +2,11 @@ import { World, MONTH_LABEL, DEFAULTS } from './world.js';
 import { MapView, DISPLAY_LEGENDS } from './ui/map.js';
 import { FamilyTree } from './ui/familyTree.js';
 import { restore, saveToBrowser, loadFromBrowser } from './save.js';
-import { renderCreaturePanel, StatsPanel, GenesPanel, SelectionPanel, renderGuide, renderSettings } from './ui/panels.js';
+import { renderCreaturePanel } from './ui/creaturePanel.js';
+import { StatsPanel } from './ui/statsPanel.js';
+import { GenesPanel } from './ui/genesPanel.js';
+import { SelectionPanel } from './ui/selectionPanel.js';
+import { renderGuide, renderSettings } from './ui/guidePanel.js';
 
 const $ = (sel) => document.querySelector(sel);
 
