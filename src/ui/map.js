@@ -63,6 +63,18 @@ function lerpColor(a, b, t) {
   return `rgb(${c(16)},${c(8)},${c(0)})`;
 }
 
+// 家の色：色合いは大本の家（創始者の系統）で決め、分家は同じ色合いで明るさを変える
+export function clanColor(world, mt, alpha = 1) {
+  const h = world?.establishedHaplo(mt);
+  const root = h?.root ?? h?.id ?? 0;
+  const branch = h && h.id !== root ? 1 + ((h.id * 7) % 3) : 0;
+  return `hsla(${(root * 137.508) % 360}, 65%, ${45 + [0, -12, 12, 22][branch]}%, ${alpha})`;
+}
+
+const rootHue = (root) => (root * 137.508) % 360;
+// 選んだ個体の、ふだん歩き回る範囲のめやす（島の幅に対する半径）
+const HOME_RANGE = 0.035;
+
 export class MapView {
   constructor(canvas) {
     this.canvas = canvas;
@@ -141,13 +153,8 @@ export class MapView {
         const e = c.genome ? eastShare(c.genome) : null;
         return e == null ? '#9a9a9a' : lerpColor('#e0892e', '#2f7fd8', e);
       }
-      case 'clan': {
-        // 色合いは大本の家（創始者の系統）で決め、分家は同じ色合いで明るさを変える
-        const h = this.world?.establishedHaplo(c.mt);
-        const root = h?.root ?? h?.id ?? 0;
-        const branch = h && h.id !== root ? 1 + ((h.id * 7) % 3) : 0;
-        return `hsl(${(root * 137.508) % 360}, 65%, ${45 + [0, -12, 12, 22][branch]}%)`;
-      }
+      case 'clan':
+        return clanColor(this.world, c.mt);
       case 'alarm':
         return c.pheno.alarm === 1 ? '#d9480f' : c.pheno.alarm > 0 ? '#f59f00' : '#9a9a9a';
       case 'age':
@@ -170,6 +177,7 @@ export class MapView {
     const t = Math.max(0, Math.min(1, frac));
     const pos = (c) => [(c.px + (c.x - c.px) * t) * w, (c.py + (c.y - c.py) * t) * h];
     const natural = this.mode === 'natural';
+    if (this.showTerritory) this._drawTerritories(world, w, h, scale);
 
     // 発光のハロー（先に描いて体の下に敷く）
     if (natural) {
@@ -294,6 +302,29 @@ export class MapView {
         ctx.setLineDash([]);
       }
     }
+    if (selected?.alive && selected.hx != null) {
+      // 選んだ個体のねぐら（縄張りの中心）と、ふだん歩き回る範囲のめやす
+      const [x, y] = pos(selected);
+      const hx = selected.hx * w;
+      const hy = selected.hy * h;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.arc(hx, hy, HOME_RANGE * w, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = `${Math.round(11 * scale + 4)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🏠', hx, hy);
+      ctx.restore();
+    }
     if (selected?.alive) {
       const [x, y] = pos(selected);
       ctx.lineWidth = 3;
@@ -305,6 +336,119 @@ export class MapView {
       ctx.strokeStyle = accent;
       ctx.stroke();
     }
+  }
+
+  // 縄張り：各個体のねぐら（hx, hy）を草のマス（島の幅の 1/40）に落とし、まわりに少しにじませて、
+  // マスごとにいちばん多い家（大本の家）をその土地の主とする。主のいるマスを家の色で塗り、境目に線を引く。
+  _territoryMap(world) {
+    const key = `${world.tick}:${world.creatures.length}:${world.island.version}`;
+    if (this._terrKey === key) return this._terr;
+    const veg = world.vegetation;
+    const { FW, FH } = veg;
+    const n = FW * FH;
+    const byRoot = new Map();
+    const K = [
+      [0, 0, 1],
+      [1, 0, 0.6],
+      [-1, 0, 0.6],
+      [0, 1, 0.6],
+      [0, -1, 0.6],
+      [1, 1, 0.35],
+      [-1, 1, 0.35],
+      [1, -1, 0.35],
+      [-1, -1, 0.35],
+    ];
+    for (const c of world.creatures) {
+      if (c.hx == null) continue;
+      const root = world.establishedHaplo(c.mt)?.root ?? 0;
+      let a = byRoot.get(root);
+      if (!a) byRoot.set(root, (a = new Float32Array(n)));
+      const f = veg.cellAt(c.hx, c.hy);
+      const fx = f % FW;
+      const fy = (f - fx) / FW;
+      for (const [dx, dy, wt] of K) {
+        const x = fx + dx;
+        const y = fy + dy;
+        if (x < 0 || y < 0 || x >= FW || y >= FH) continue;
+        a[y * FW + x] += wt;
+      }
+    }
+    const owner = new Int32Array(n).fill(-1);
+    for (let i = 0; i < n; i++) {
+      if (veg.cap[i] <= 0) continue;
+      let best = -1;
+      let bestW = 0.9; // これより薄い（ほとんど誰も住んでいない）マスは主なし
+      for (const [root, a] of byRoot) {
+        if (a[i] > bestW) {
+          bestW = a[i];
+          best = root;
+        }
+      }
+      owner[i] = best;
+    }
+    // 家ごとのマスの数と重心（名前を書く場所）
+    const stats = new Map();
+    for (let i = 0; i < n; i++) {
+      const r = owner[i];
+      if (r < 0) continue;
+      const st = stats.get(r) ?? { cells: 0, sx: 0, sy: 0 };
+      st.cells++;
+      st.sx += (i % FW) + 0.5;
+      st.sy += Math.floor(i / FW) + 0.5;
+      stats.set(r, st);
+    }
+    this._terrKey = key;
+    this._terr = { owner, FW, FH, stats };
+    return this._terr;
+  }
+
+  _drawTerritories(world, w, h, scale) {
+    const { owner, FW, FH, stats } = this._territoryMap(world);
+    const ctx = this.ctx;
+    const cw = w / FW;
+    const ch = h / FH;
+    ctx.save();
+    for (let i = 0; i < owner.length; i++) {
+      const r = owner[i];
+      if (r < 0) continue;
+      ctx.fillStyle = `hsla(${rootHue(r)}, 70%, 50%, 0.32)`;
+      ctx.fillRect((i % FW) * cw, Math.floor(i / FW) * ch, cw + 0.5, ch + 0.5);
+    }
+    // 境目：隣のマスと主が違うところに線
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let y = 0; y < FH; y++) {
+      for (let x = 0; x < FW; x++) {
+        const o = owner[y * FW + x];
+        if (x + 1 < FW && o !== owner[y * FW + x + 1] && (o >= 0 || owner[y * FW + x + 1] >= 0)) {
+          ctx.moveTo((x + 1) * cw, y * ch);
+          ctx.lineTo((x + 1) * cw, (y + 1) * ch);
+        }
+        if (y + 1 < FH && o !== owner[(y + 1) * FW + x] && (o >= 0 || owner[(y + 1) * FW + x] >= 0)) {
+          ctx.moveTo(x * cw, (y + 1) * ch);
+          ctx.lineTo((x + 1) * cw, (y + 1) * ch);
+        }
+      }
+    }
+    ctx.stroke();
+    // 大きな縄張りには家の名前
+    ctx.font = `bold ${Math.round(12 * scale + 2)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    for (const [r, st] of stats) {
+      if (st.cells < 8) continue;
+      const x = (st.sx / st.cells) * cw;
+      const y = (st.sy / st.cells) * ch;
+      const name = world.clanOf(r);
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.strokeText(name, x, y);
+      ctx.fillStyle = `hsl(${rootHue(r)}, 70%, 30%)`;
+      ctx.fillText(name, x, y);
+    }
+    ctx.restore();
   }
 
   pick(world, clientX, clientY) {

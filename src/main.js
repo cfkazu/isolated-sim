@@ -503,6 +503,10 @@ $('#btn-step').addEventListener('click', () => {
 $('#speed').addEventListener('change', (e) => {
   state.speed = Number(e.target.value);
 });
+$('#btn-territory').addEventListener('click', () => {
+  mapView.showTerritory = !mapView.showTerritory;
+  $('#btn-territory').setAttribute('aria-pressed', String(mapView.showTerritory));
+});
 $('#display-mode').addEventListener('change', (e) => {
   mapView.mode = e.target.value;
   renderLegend();
