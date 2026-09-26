@@ -6,6 +6,7 @@ import {
   survivalRows,
   selectionSummary,
   SELECTION_T,
+  SELECTION_HINT_T,
 } from '../stats.js';
 import { DEATH_CAUSES } from '../world.js';
 import { pct } from './panelUtil.js';
@@ -93,7 +94,9 @@ export class SelectionPanel {
     const badge = (s) => {
       if (s.key === 'ear') return '<span class="badge">対照（中立）</span>';
       if (s.t === null) return '<span class="badge">期間を長くして判定</span>';
-      return s.t > SELECTION_T ? '<span class="badge gene">毎年安定して差がある</span>' : '<span class="badge">偶然の範囲</span>';
+      if (s.t > SELECTION_T) return '<span class="badge gene">毎年安定して差がある</span>';
+      if (s.t > SELECTION_HINT_T) return '<span class="badge">弱い傾向（偶然かもしれない）</span>';
+      return '<span class="badge">偶然の範囲</span>';
     };
     this.el.querySelector('#sel-summary').innerHTML = summary.length
       ? `<table><tbody>${summary
@@ -102,7 +105,8 @@ export class SelectionPanel {
             <td class="small">${s.tr.names[s.best.k]} ${pct(s.best.p)} ＞ ${s.tr.names[s.worst.k]} ${pct(s.worst.p)}</td>
             <td>${badge(s)}</td></tr>`,
           )
-          .join('')}</tbody></table>`
+          .join('')}</tbody></table>
+        <p class="muted small">生存率の差はたいてい数ポイントで、年によって向きも変わる（捕食者が多い色を狙う、寒い時代と暖かい時代で有利な毛皮が逆になる…）。10 年では見分けにくい小さな差も、期間を「全期間」にすると見えてくることが多い。現実の野外研究でも、自然選択を確かめるには何十年分もの記録がいる。</p>`
       : '<p class="muted small">個体数が少なく、まだ比べられません。</p>';
   }
 }

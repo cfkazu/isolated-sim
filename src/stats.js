@@ -305,7 +305,9 @@ export function survivalRows(rows, classes) {
 }
 
 // 「毎年安定して差がある」と判定する t 値。中立な耳の形で誤判定が 10 年窓の 3% ほどになるよう較正した。
-export const SELECTION_T = 3.5;
+export const SELECTION_T = 3.2;
+// これ以上なら「弱い傾向（偶然かもしれない）」。中立な耳の形でも 15% ほどはここに入る
+export const SELECTION_HINT_T = 2;
 
 // 年ごとの差の平均 ÷ 標準誤差（t 値）で、差が毎年安定して出ているかを判定する材料を返す
 export function selectionSummary(recs) {
@@ -317,19 +319,28 @@ export function selectionSummary(recs) {
       if (rs.length < 2) return null;
       const best = rs.reduce((a, b) => (b.p > a.p ? b : a));
       const worst = rs.reduce((a, b) => (b.p < a.p ? b : a));
-      const diffs = [];
+      // 年ごとの差を、その年の個体数で重み付けする（1/(1/na + 1/nb)）。数匹しかいない年も捨てずに、軽く扱う。
+      // 以前は 3 匹未満の年を捨てて等しい重みで平均していたため、対象の少ない形質（遺伝病など）をほとんど検出できなかった
+      const ds = [];
+      let sw = 0;
+      let swd = 0;
       for (const rec of recs) {
         const a = rec[key][best.k];
         const b = rec[key][worst.k];
-        if (a.n >= 3 && b.n >= 3) diffs.push(a.survived / a.n - b.survived / b.n);
+        if (a.n < 1 || b.n < 1) continue;
+        const d = a.survived / a.n - b.survived / b.n;
+        const w = 1 / (1 / a.n + 1 / b.n);
+        ds.push([d, w]);
+        sw += w;
+        swd += w * d;
       }
       let t = null;
-      if (diffs.length >= 3) {
-        const m = diffs.reduce((x, y) => x + y, 0) / diffs.length;
-        const sd = Math.sqrt(diffs.reduce((x, y) => x + (y - m) ** 2, 0) / (diffs.length - 1));
-        t = sd > 0 ? m / (sd / Math.sqrt(diffs.length)) : m > 0 ? Infinity : 0;
+      if (ds.length >= 3) {
+        const m = swd / sw;
+        const s2 = ds.reduce((x, [d, w]) => x + w * (d - m) ** 2, 0) / (ds.length - 1);
+        t = s2 > 0 ? m / Math.sqrt(s2 / sw) : m > 0 ? Infinity : 0;
       }
-      return { key, tr, best, worst, t, years: diffs.length };
+      return { key, tr, best, worst, t, years: ds.length };
     })
     .filter(Boolean)
     .sort((a, b) => (b.t ?? -1) - (a.t ?? -1));
