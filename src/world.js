@@ -54,8 +54,12 @@ export const MONTH_LABEL = ['1月', '2月', '3月', '4月', '5月', '6月', '7�
 const BREEDING_MONTHS = new Set([2, 3, 4, 5]);
 // 換毛する個体が白い冬毛になる月（12〜2 月）
 const WINTER_COAT_MONTHS = new Set([11, 0, 1]);
-// アルビノは目が弱く、近くの相手を見つけられる範囲がこの割合に狭まる
+// アルビノは目が弱く、相手と出会う距離がこの割合に縮む
 const ALBINO_SIGHT = 0.6;
+// 相手と出会う距離のめやす（島の幅に対する割合）。ふだん歩き回る範囲（縄張り）と同じくらい
+const MATE_REACH = 0.05;
+// 近くで相手に出会えなかったメスが、遠くまで探しに行く確率（1 か月あたり）
+const FAR_SEARCH = 0.35;
 // 警戒声：鳴いた本人は目立つ（見つけやすさ × (1 + ALARM_COST)）。知らされた周りの個体は隠れる（× (1 − ALARM_BENEFIT)）。
 // 声が届くのは、同じ草のマスとその隣のマス（おおよそ島の幅の 2.5〜6%）
 const ALARM_COST = 0.3;
@@ -791,28 +795,47 @@ export class World {
     return Math.round(this.opts.maturityMonths / c.pheno.metabolism);
   }
 
+  // 相手選び：メスは同じ陸地のオスと、近いほど出会いやすい（出会いやすさ = exp(−距離² / 2σ²)、σ = MATE_REACH）。
+  // 相手が見つかる確率は出会いやすさの合計で決まる（1 − exp(−合計)）。近くにオスがいなければ、たまに遠くまで探しに行く。
+  // 見つかったら、出会いやすさ × 魅力（体格² × 好みの飾り）に比例して選ぶ。
   _chooseMate(f, males) {
     const o = this.opts;
-    const sight = f.pheno.albino ? 0.14 * ALBINO_SIGHT : 0.14;
-    const R2 = sight * sight;
+    const reach = f.pheno.albino ? MATE_REACH * ALBINO_SIGHT : MATE_REACH;
+    const inv = 1 / (2 * reach * reach);
+    const far2 = 16 * reach * reach; // 4σ より遠いオスとはほとんど出会わないので数えない
     // 相手は同じ陸地にいるオスだけ（海の向こうには行けない）
     const land = this.island.landmassAt(f.x, f.y);
-    const sameLand = males.filter((m) => this.island.landmassAt(m.x, m.y) === land);
-    let candidates = sameLand.filter((m) => {
+    const candidates = [];
+    const meet = [];
+    let total = 0;
+    for (const m of males) {
       const dx = m.x - f.x;
       const dy = (m.y - f.y) * 0.75;
-      return dx * dx + dy * dy < R2;
-    });
-    if (candidates.length === 0) {
-      // 近くに相手がいない：遠くまで探しに行けるのはたまに（低密度での繁殖の難しさ＝アリー効果）
-      if (this.rng.next() > 0.35) return null;
-      candidates = sameLand;
-      if (candidates.length === 0) return null;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > far2 || this.island.landmassAt(m.x, m.y) !== land) continue;
+      const e = Math.exp(-d2 * inv);
+      candidates.push(m);
+      meet.push(e);
+      total += e;
     }
-    const weights = candidates.map((m) => {
+    if (total === 0 || this.rng.next() > 1 - Math.exp(-total)) {
+      // 近くで出会えなかった：遠くまで探しに行けるのはたまに。行けば同じ陸地のどのオスとも出会える
+      // （まばらなときに遠くまで歩き回る行動。これがないと、個体数が減ったとき誰も番えずに絶滅した）
+      if (this.rng.next() > FAR_SEARCH) return null;
+      candidates.length = 0;
+      meet.length = 0;
+      for (const m of males) {
+        if (this.island.landmassAt(m.x, m.y) !== land) continue;
+        candidates.push(m);
+        meet.push(1);
+      }
+      if (!candidates.length) return null;
+    }
+    const weights = candidates.map((m, i) => {
       if (o.inbreedingAvoidance && this.pedigree.kinship(f.id, m.id) >= 0.125) return 0;
       // 大きいオスほど他のオスに競り勝つ（体格²）。そのうえでメス自身の好みの遺伝子で飾りを評価する
       return (
+        meet[i] *
         m.pheno.size *
         m.pheno.size *
         (1 + PREFERENCE_SCALE * f.pheno.prefTail * tailDisplay(m)) *
