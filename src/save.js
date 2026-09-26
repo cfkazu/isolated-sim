@@ -282,3 +282,34 @@ export async function deleteFromBrowser(key = 'autosave') {
     // 保存できない環境では何もしない
   }
 }
+
+// ───── 自作シナリオ（同じデータベースに scenario:<id> という鍵で入れる） ─────
+
+const SC_PREFIX = 'scenario:';
+
+export async function listScenarios() {
+  try {
+    const range = IDBKeyRange.bound(SC_PREFIX, `${SC_PREFIX}\uffff`);
+    const all = (await withStore('readonly', (st) => st.getAll(range))) ?? [];
+    return all.sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveScenario(sc) {
+  try {
+    await withStore('readwrite', (st) => st.put({ ...sc, savedAt: Date.now() }, SC_PREFIX + sc.id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteScenario(id) {
+  try {
+    await withStore('readwrite', (st) => st.delete(SC_PREFIX + id));
+  } catch {
+    // 保存できない環境では何もしない
+  }
+}

@@ -15,11 +15,12 @@ import {
   islandStats,
 } from './stats.js';
 import { makeHighlights, DIGEST_YEARS } from './highlights.js';
-import { SCENARIOS, groupOf } from './scenarios.js';
+import { SCENARIOS, groupOf, scenarioOf, expandFreqs } from './scenarios.js';
 import { Vegetation, BODY_RGB, contrast, groundAt, predationHazards, PREDATOR } from './ecology.js';
 
 export const DEFAULTS = {
   scenario: 'free',
+  scenarioData: null, // 自作シナリオの中身（scenario は 'custom'）
   seed: 'island',
   initialCount: 100,
   fertility: 1.0, // 草の育ちやすさ（島の豊かさ）
@@ -110,8 +111,9 @@ export class World {
   constructor(options = {}) {
     this.opts = { ...DEFAULTS, ...options };
     // シナリオの島の設定は、ふだんの設定より優先する
-    const sc = SCENARIOS[this.opts.scenario];
-    if (sc?.opts) Object.assign(this.opts, sc.opts);
+    const sc = scenarioOf(this.opts);
+    this.scenario = sc;
+    if (sc.opts) Object.assign(this.opts, sc.opts);
     this.rng = createRng(this.opts.seed);
     const geology = this.opts.geology === 'auto' ? this.rng.pick(['lush', 'volcanic', 'coral']) : this.opts.geology;
     this.island = generateIsland(this.rng, {
@@ -154,6 +156,8 @@ export class World {
 
     const n = this.opts.initialCount;
     const groupMt = new Map();
+    const allFreqs = expandFreqs(sc);
+    const groupFreqs = (sc.groups ?? []).map((g) => expandFreqs(g));
     for (let k = 0; k < n; k++) {
       const sex = k % 2 === 0 ? 'F' : 'M';
       const gi = groupOf(sc, k, n);
@@ -166,8 +170,8 @@ export class World {
         pos = this.opts.islandShape === 'islets' ? this.island.randomLand(this.rng, (t, c) => this.island.landmass[c] === main) : this.island.randomLand(this.rng);
       }
       const genome = randomGenome(sex, this.rng, g?.origin ?? this.rng.int(2));
-      setFreqs(genome, sc?.freqs, this.rng);
-      setFreqs(genome, g?.freqs, this.rng);
+      setFreqs(genome, allFreqs, this.rng);
+      setFreqs(genome, groupFreqs[gi], this.rng);
       const c = this._spawn({
         sex,
         genome,
@@ -188,7 +192,7 @@ export class World {
     this._recordYear();
     this._startCohort();
     this.addLog(`🏝️ ${n} 匹の生物が${this.island.geology.label}に閉じ込められた。いまは${this.climateLabel}の時代（氷期から次の氷期まで約 ${this.opts.climateCycleYears} 年）。`);
-    if (sc && this.opts.scenario !== 'free') this.addLog(`📖 シナリオ「${sc.label}」：${sc.desc}`, 'event');
+    if (sc !== SCENARIOS.free) this.addLog(`📖 シナリオ「${sc.label}」${sc.desc ? `：${sc.desc}` : ''}`, 'event');
     this.addLog('🧭 百匹は東と西の二つの土地から来た。東と西の間の子は、子ができにくいことがある（雑種の不和合）。', 'gene');
   }
 
@@ -826,7 +830,7 @@ export class World {
     this._milestones();
     this._clanEvents();
     if (this.year > 0 && this.year % DIGEST_YEARS === 0) this._digest();
-    for (const e of SCENARIOS[this.opts.scenario]?.events ?? []) if (e.year === this.year) this.applyEvent(e.event);
+    for (const e of this.scenario?.events ?? []) if (e.year === this.year) this.applyEvent(e.event);
     this._resetCounters();
     if (this.opts.randomEvents) this._randomEvents();
 

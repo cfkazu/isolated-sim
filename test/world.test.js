@@ -316,3 +316,33 @@ test('シナリオ：どのシナリオも始められ、群れは決めた場�
   const east = ew.creatures.filter((c) => c.x > 0.5);
   assert.ok(east.every((c) => c.genome.m[LOCI.findIndex((l) => l.key === 'HA1')] === 'n'));
 });
+
+test('自作シナリオ：検査で危ない値を直し、形質の指定を遺伝子座に展開して使う', async () => {
+  const { normalizeScenario, expandFreqs, scenarioWarnings } = await import('../src/scenarios.js');
+  const sc = normalizeScenario({
+    label: 'テスト'.repeat(20),
+    hack: 'x',
+    opts: { initialCount: 99999, geology: 'mars', islandShape: 'single' },
+    traits: { fur: 2, nope: 1 },
+    freqs: { COL: { w: 1, Z: 3 }, XXX: { a: 1 } },
+    groups: [{ name: 'A', share: 1, place: { x: 5, y: -1, r: 9 }, clan: true, origin: 1 }, { share: 1 }],
+    events: [{ year: 3, event: 'supercold' }, { year: 5, event: 'meteor' }],
+  });
+  assert.equal(sc.label.length, 40);
+  assert.equal(sc.hack, undefined);
+  assert.deepEqual(sc.opts, { initialCount: 1000, islandShape: 'single' });
+  assert.deepEqual(sc.traits, { fur: 1 });
+  assert.deepEqual(sc.freqs, { COL: { w: 1 } });
+  assert.deepEqual(sc.groups[0].place, { x: 1, y: 0, r: 0.5 });
+  assert.equal(sc.events.length, 1);
+  const f = expandFreqs(sc);
+  assert.deepEqual(f.FR1, { '+': 1, '-': 0 });
+  assert.throws(() => normalizeScenario('abc'));
+  assert.ok(Array.isArray(scenarioWarnings(sc)));
+
+  const w = new World({ seed: 'custom', scenario: 'custom', scenarioData: { ...sc, opts: { initialCount: 40 }, groups: [] } });
+  assert.equal(w.creatures.length, 40);
+  assert.ok(w.creatures.every((c) => c.pheno.color === 'white' && c.pheno.fur === 1));
+  for (let m = 0; m < 12 * 4; m++) w.step();
+  assert.ok(w.log.some((e) => e.text.includes('超寒冷期') || e.text.includes('氷')));
+});

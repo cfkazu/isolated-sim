@@ -11,6 +11,44 @@
 //   events    : [{ year, event }]。event は「神の介入」と同じ名前（epidemic, famine, cold, warm, supercold, storm, castaway, predators）
 //   watch     : 見どころの案内（文章）
 
+import { LOCI, LOCUS, POLYGENIC_TRAITS } from './genes.js';
+import { GEOLOGY, ISLAND_SHAPES } from './island.js';
+
+export const SCENARIO_FORMAT = 1;
+
+// 予定に書ける出来事（「神の介入」と同じ）
+export const EVENTS = {
+  epidemic: '疫病',
+  famine: '干ばつ',
+  cold: '寒冷期',
+  warm: '温暖期',
+  supercold: '超寒冷期',
+  storm: '大嵐',
+  castaway: '漂着者',
+  predators: '捕食者の上陸',
+};
+
+// 気候の波のどこから始めるか（画面の選択肢）
+export const CLIMATE_STARTS = [
+  [null, 'おまかせ（間氷期〜寒冷化のどこか）'],
+  [0.05, '間氷期の始まり'],
+  [0.4, '寒冷化の途中'],
+  [0.62, '寒冷化の終わり（氷期の手前）'],
+  [0.78, '氷期の底'],
+  [0.9, '急な温暖化の途中'],
+];
+
+// 画面で指定する「形質」の単位。量的形質はその形質の全遺伝子座に同じ割合を入れる。
+// value は allele の割合（2 対立遺伝子の座では、残りがもう一方になる）
+export const TRAIT_DEFS = [
+  ...POLYGENIC_TRAITS.map((t) => ({ key: t.trait, label: `${t.label}（＋の割合）`, loci: t.loci, allele: '+' })),
+  { key: 'del', label: '有害因子（3 座の d の割合）', loci: LOCI.filter((l) => l.mode === 'deleterious').map((l) => l.key), allele: 'd' },
+];
+const TRAIT_BY_KEY = Object.fromEntries(TRAIT_DEFS.map((t) => [t.key, t]));
+
+// 画面の「形質」の一覧に 1 つの遺伝子座のまま出すもの（それ以外は「詳しく」で遺伝子座ごとに）
+export const SIMPLE_LOCI = LOCI.filter((l) => ['series', 'codominant', 'incomplete', 'xlinked', 'overdominant', 'lethal', 'epistasis', 'plastic', 'social'].includes(l.mode)).map((l) => l.key);
+
 const LOW_DISPERSAL = { DM1: { '+': 0.05 }, DM2: { '+': 0.05 }, DF1: { '+': 0.05 }, DF2: { '+': 0.05 } };
 
 export const SCENARIOS = {
@@ -93,4 +131,152 @@ export function groupOf(sc, k, n) {
     if (k < Math.round(acc * n)) return i;
   }
   return gs.length - 1;
+}
+
+// ───── 自作シナリオ：検査と展開 ─────
+
+const num = (v, lo, hi, def) => {
+  const x = Number(v);
+  return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : def;
+};
+const str = (v, max, def = '') => (typeof v === 'string' ? v.slice(0, max) : def);
+
+function cleanFreqs(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [key, dist] of Object.entries(raw)) {
+    const locus = LOCUS[key];
+    if (!locus || !dist || typeof dist !== 'object') continue;
+    const d = {};
+    for (const a of locus.alleles) if (dist[a] != null) d[a] = num(dist[a], 0, 1000, 0);
+    if (Object.keys(d).length) out[key] = d;
+  }
+  return out;
+}
+
+function cleanTraits(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw)) if (TRAIT_BY_KEY[k]) out[k] = num(v, 0, 1, 0.5);
+  return out;
+}
+
+function cleanOpts(raw) {
+  const o = {};
+  if (!raw || typeof raw !== 'object') return o;
+  if (ISLAND_SHAPES[raw.islandShape]) o.islandShape = raw.islandShape;
+  if (raw.geology === 'auto' || GEOLOGY[raw.geology]) o.geology = raw.geology;
+  if (raw.initialCount != null) o.initialCount = Math.round(num(raw.initialCount, 2, 1000, 100));
+  if (raw.fertility != null) o.fertility = num(raw.fertility, 0.1, 5, 1);
+  if (raw.initialPredators != null) o.initialPredators = Math.round(num(raw.initialPredators, 0, 100, 6));
+  if (typeof raw.seed === 'string' && raw.seed.trim()) o.seed = raw.seed.trim().slice(0, 40);
+  return o;
+}
+
+// 人からもらったシナリオでも安全に使えるよう、知らない項目は捨て、数値は範囲に収める
+export function normalizeScenario(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('シナリオの形になっていません');
+  const groups = (Array.isArray(raw.groups) ? raw.groups : []).slice(0, 12).map((g, i) => {
+    const out = {
+      name: str(g?.name, 30, `群れ${i + 1}`) || `群れ${i + 1}`,
+      share: num(g?.share, 0.001, 1000, 1),
+      clan: g?.clan === true,
+      freqs: cleanFreqs(g?.freqs),
+      traits: cleanTraits(g?.traits),
+    };
+    if (g?.place && typeof g.place === 'object') out.place = { x: num(g.place.x, 0, 1, 0.5), y: num(g.place.y, 0, 1, 0.5), r: num(g.place.r, 0.02, 0.5, 0.1) };
+    if (g?.origin === 0 || g?.origin === 1) out.origin = g.origin;
+    return out;
+  });
+  const events = (Array.isArray(raw.events) ? raw.events : [])
+    .slice(0, 50)
+    .filter((e) => e && EVENTS[e.event])
+    .map((e) => ({ year: Math.round(num(e.year, 1, 5000, 10)), event: e.event }));
+  const id = typeof raw.id === 'string' && /^[\w-]{1,64}$/.test(raw.id) ? raw.id : `my-${Date.now().toString(36)}`;
+  return {
+    format: SCENARIO_FORMAT,
+    id,
+    label: str(raw.label, 40).trim() || '名前のないシナリオ',
+    desc: str(raw.desc, 300),
+    watch: (Array.isArray(raw.watch) ? raw.watch : []).filter((w) => typeof w === 'string' && w.trim()).slice(0, 10).map((w) => w.slice(0, 200)),
+    opts: cleanOpts(raw.opts),
+    climateStart: raw.climateStart == null ? null : num(raw.climateStart, 0, 0.999, null),
+    freqs: cleanFreqs(raw.freqs),
+    traits: cleanTraits(raw.traits),
+    groups,
+    events,
+  };
+}
+
+// 形質の指定（traits）を遺伝子座ごとの割合（freqs）に展開し、遺伝子座ごとの指定（freqs）で上書きする
+export function expandFreqs(target) {
+  if (!target) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(target.traits ?? {})) {
+    const t = TRAIT_BY_KEY[k];
+    if (!t) continue;
+    for (const key of t.loci) {
+      const other = LOCUS[key].alleles.find((a) => a !== t.allele);
+      out[key] = { [t.allele]: v, [other]: 1 - v };
+    }
+  }
+  return Object.assign(out, target.freqs ?? {});
+}
+
+// World が使うシナリオの中身：自作（opts.scenarioData）か、組み込みの名前から
+export function scenarioOf(opts) {
+  if (opts.scenarioData) {
+    try {
+      return normalizeScenario(opts.scenarioData);
+    } catch {
+      return SCENARIOS.free;
+    }
+  }
+  return SCENARIOS[opts.scenario] ?? SCENARIOS.free;
+}
+
+// 組み込みシナリオを、編集できる自作シナリオの下書きにする
+export function draftFrom(key, custom = null) {
+  const src = custom ?? SCENARIOS[key] ?? SCENARIOS.free;
+  const d = normalizeScenario(JSON.parse(JSON.stringify(src)));
+  if (!custom) {
+    d.id = `my-${Date.now().toString(36)}`;
+    d.label = key === 'free' ? '新しいシナリオ' : `${d.label}（改）`;
+    if (key === 'free') d.desc = '';
+  }
+  return d;
+}
+
+// 保存の前の確認
+export function scenarioWarnings(sc, defaultCount = 100) {
+  const out = [];
+  const n = sc.opts?.initialCount ?? defaultCount;
+  if (sc.groups.length) {
+    const counts = sc.groups.map(() => 0);
+    const sexes = sc.groups.map(() => new Set());
+    for (let k = 0; k < n; k++) {
+      const g = groupOf(sc, k, n);
+      counts[g]++;
+      sexes[g].add(k % 2);
+    }
+    sc.groups.forEach((g, i) => {
+      if (counts[i] < 2) out.push(`「${g.name}」は ${counts[i]} 匹しかいません（2 匹以上にしないと子が生まれません）。`);
+      else if (sexes[i].size < 2) out.push(`「${g.name}」は片方の性だけです。`);
+      if (!g.place) out.push(`「${g.name}」は置き場所が決まっていないので、島じゅうに散らばります。`);
+    });
+  }
+  for (const [key, d] of Object.entries(expandFreqs(sc))) {
+    if (Object.values(d).every((v) => v <= 0)) out.push(`${LOCUS[key].name}の割合がすべて 0 です（指定は無視されます）。`);
+  }
+  return out;
+}
+
+// 最初の個体の、群れごとの数
+export function groupCounts(sc, n) {
+  const counts = sc.groups.map(() => 0);
+  for (let k = 0; k < n; k++) {
+    const g = groupOf(sc, k, n);
+    if (g != null) counts[g]++;
+  }
+  return counts;
 }

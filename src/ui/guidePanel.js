@@ -52,21 +52,37 @@ export function renderGuide(el) {
 
 // ───────────────────────── 設定 ─────────────────────────
 
-function scenarioHint(key) {
-  const sc = SCENARIOS[key] ?? SCENARIOS.free;
+function scenarioHint(key, customs = []) {
+  const sc = key?.startsWith('custom:') ? (customs.find((c) => `custom:${c.id}` === key) ?? SCENARIOS.free) : (SCENARIOS[key] ?? SCENARIOS.free);
   const fixed = Object.keys(sc.opts ?? {}).length ? '（このシナリオでは、島の形・地質・個体数などの一部をシナリオが決めます）' : '';
   return `${sc.desc}${fixed}`;
 }
 
-export function renderSettings(el, opts, onChange, onRestart) {
+// extra: { customs: () => 自作シナリオの一覧, onEdit(選んでいるシナリオ), onImport(文字列) → Promise<メッセージ>, onDelete(id) }
+export function renderSettings(el, opts, onChange, onRestart, extra = {}) {
   const o = { ...DEFAULTS, ...opts };
+  const customs = extra.customs?.() ?? [];
+  const current = o.scenario === 'custom' && o.scenarioData ? `custom:${o.scenarioData.id}` : o.scenario;
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
   el.innerHTML = `<div class="settings">
     <h2>新しい島の条件</h2>
     <p class="hint">これらは「この設定で新しい島を始める」を押したときに反映されます。</p>
-    <label class="field">シナリオ（島の始まり方）<select name="scenario">${Object.entries(SCENARIOS)
-      .map(([k, v]) => `<option value="${k}" ${o.scenario === k ? 'selected' : ''}>${v.label}</option>`)
-      .join('')}</select></label>
-    <p class="hint" id="scenario-desc">${scenarioHint(o.scenario)}</p>
+    <label class="field">シナリオ（島の始まり方）<select name="scenario">
+      <optgroup label="組み込み">${Object.entries(SCENARIOS)
+        .map(([k, v]) => `<option value="${k}" ${current === k ? 'selected' : ''}>${v.label}</option>`)
+        .join('')}</optgroup>
+      ${customs.length ? `<optgroup label="自作">${customs.map((c) => `<option value="custom:${esc(c.id)}" ${current === `custom:${c.id}` ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</optgroup>` : ''}
+    </select></label>
+    <p class="hint" id="scenario-desc">${esc(scenarioHint(current, customs))}</p>
+    <div class="btn-row">
+      <button type="button" data-action="edit-scenario">✏️ シナリオを作る・直す</button>
+      ${current.startsWith('custom:') ? '<button type="button" data-action="delete-scenario">この自作シナリオを消す</button>' : ''}
+    </div>
+    <details class="sc-import"><summary class="small">📥 シナリオを読み込む（人からもらったファイル・文字列）</summary>
+      <input type="file" accept="application/json,.json" data-import-file>
+      <textarea rows="3" placeholder="ここに文字列を貼り付け" data-import-text></textarea>
+      <div class="btn-row"><button type="button" data-action="import-scenario">読み込む</button><span class="muted small" data-import-status></span></div>
+    </details>
     <label class="field">シード（同じシードなら同じ島・同じ歴史）<input type="text" name="seed" value="${String(o.seed).replace(/"/g, '&quot;')}"></label>
     <label class="field">島の形<select name="islandShape">${Object.entries(ISLAND_SHAPES)
       .map(([k, v]) => `<option value="${k}" ${o.islandShape === k ? 'selected' : ''}>${v.label}</option>`)
@@ -105,17 +121,33 @@ export function renderSettings(el, opts, onChange, onRestart) {
   // 保存した島を読み込んだときに描き直すので、イベントは最初の 1 回だけ登録する
   if (el.dataset.bound) return;
   el.dataset.bound = '1';
+  el.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.importFile != null) t.files?.[0]?.text().then((text) => (el.querySelector('[data-import-text]').value = text));
+  });
   el.addEventListener('input', (e) => {
     const t = e.target;
     if (!t.name) return;
     const v = t.type === 'checkbox' ? t.checked : t.type === 'number' || t.dataset.num ? Number(t.value) : t.value;
     if (t.type === 'number' && !Number.isFinite(v)) return;
     onChange(t.name, v);
-    if (t.name === 'scenario') el.querySelector('#scenario-desc').textContent = scenarioHint(v);
+    if (t.name === 'scenario') {
+      el.querySelector('#scenario-desc').textContent = scenarioHint(v, extra.customs?.() ?? []);
+      extra.onSelect?.(v);
+    }
   });
   el.addEventListener('click', (e) => {
     const a = e.target.closest('[data-action]')?.dataset.action;
     if (a === 'restart') onRestart(false);
     if (a === 'random-seed') onRestart(true);
+    if (a === 'edit-scenario') extra.onEdit?.(el.querySelector('select[name="scenario"]').value);
+    if (a === 'delete-scenario') extra.onDelete?.(el.querySelector('select[name="scenario"]').value.slice(7));
+    if (a === 'import-scenario') {
+      const text = el.querySelector('[data-import-text]').value;
+      extra.onImport?.(text).then((msg) => {
+        const st = el.querySelector('[data-import-status]');
+        if (st) st.textContent = msg;
+      });
+    }
   });
 }

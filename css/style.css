@@ -1202,3 +1202,186 @@ details.full-genes summary {
   margin: 6px 0 4px;
   padding-left: 1.2em;
 }
+
+/* 開始画面：最初に遊び始める前だけ地図の上に出す */
+.start-screen {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(2px);
+  padding: 16px;
+  display: grid;
+  place-items: center;
+}
+
+.start-screen[hidden] {
+  display: none;
+}
+
+.start-inner {
+  max-width: 620px;
+  width: 100%;
+}
+
+.start-inner h2 {
+  text-align: center;
+  margin: 0 0 12px;
+}
+
+.start-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.start-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.start-card strong {
+  font-size: 14px;
+}
+
+.start-card:hover,
+.start-card:focus-visible {
+  border-color: var(--series-1);
+}
+
+/* シナリオ編集画面 */
+.map-wrap.placing canvas {
+  cursor: crosshair;
+}
+
+.sc-editor h3 {
+  margin: 16px 0 6px;
+}
+
+.sc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 10px;
+  align-items: end;
+}
+
+.sc-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.sc-group.placing {
+  border-color: var(--series-1);
+  box-shadow: 0 0 0 1px var(--series-1);
+}
+
+.sc-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.sc-group-head input[type='text'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.sc-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.sc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.sc-row input[type='number'] {
+  width: 5em;
+}
+
+.sc-row input[type='range'] {
+  flex: 1;
+  min-width: 100px;
+}
+
+.sc-label {
+  min-width: 8em;
+}
+
+.sc-allele {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sc-allele input[type='number'] {
+  width: 4.2em;
+}
+
+.sc-genes details {
+  margin-top: 4px;
+}
+
+.sc-warn {
+  border: 1px solid var(--event);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  margin: 12px 0 6px;
+  font-size: 13px;
+}
+
+.sc-warn ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+}
+
+.sc-import textarea,
+.sc-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 編集画面では、ラベルの下に入力欄を置く（狭い欄に詰めない） */
+.sc-editor label.field {
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+
+.sc-editor label.field > :is(input, select, textarea) {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.sc-allele input[type='number'] {
+  width: 5em;
+}
+
+/* 群れを置くとき、編集画面を下へ読み進めても地図が見えるように */
+@media (min-width: 961px) {
+  .map-wrap.placing {
+    position: sticky;
+    top: 8px;
+    z-index: 3;
+  }
+}

@@ -244,6 +244,31 @@ export class MapView {
     }
 
     // 地形編集の筆
+    // シナリオ編集：群れの置き場所（半径 r は横幅に対する割合。縦は 3:4 の比で同じ長さになる）
+    if (this.circles?.length) {
+      ctx.save();
+      ctx.font = `bold ${Math.round(12 * scale + 2)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      for (const c of this.circles) {
+        ctx.beginPath();
+        ctx.arc(c.x * w, c.y * h, c.r * w, 0, Math.PI * 2);
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = c.color;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = c.active ? 3 : 1.5;
+        ctx.setLineDash(c.active ? [] : [5, 4]);
+        ctx.strokeStyle = c.color;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.strokeText(c.label, c.x * w, c.y * h - c.r * w - 6);
+        ctx.fillStyle = c.color;
+        ctx.fillText(c.label, c.x * w, c.y * h - c.r * w - 6);
+      }
+      ctx.restore();
+    }
     if (this.brush) {
       ctx.beginPath();
       ctx.ellipse(this.brush.x * w, this.brush.y * h, (this.brush.r / world.island.W) * w, (this.brush.r / world.island.H) * h, 0, 0, Math.PI * 2);

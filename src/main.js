@@ -1,7 +1,9 @@
 import { World, MONTH_LABEL, DEFAULTS } from './world.js';
 import { MapView, DISPLAY_LEGENDS } from './ui/map.js';
 import { FamilyTree } from './ui/familyTree.js';
-import { restore, saveToBrowser, loadFromBrowser } from './save.js';
+import { restore, saveToBrowser, loadFromBrowser, listScenarios, saveScenario, deleteScenario } from './save.js';
+import { SCENARIOS, normalizeScenario, draftFrom, TRAIT_DEFS, SIMPLE_LOCI } from './scenarios.js';
+import { ScenarioEditor } from './ui/scenarioEditor.js';
 import { renderCreaturePanel } from './ui/creaturePanel.js';
 import { StatsPanel } from './ui/statsPanel.js';
 import { GenesPanel } from './ui/genesPanel.js';
@@ -32,10 +34,31 @@ const familyTree = new FamilyTree($('#tab-family'), (id) => {
   state.selectedId = id;
 });
 renderGuide($('#tab-guide'));
+// 設定タブは「ふだんの設定」と「シナリオ編集画面」を切り替える
+$('#tab-settings').innerHTML = '<div id="settings-main"></div><div id="scenario-editor" hidden></div>';
+const customs = { list: [] };
+const findCustom = (id) => customs.list.find((c) => c.id === id);
+
+// シナリオの選択肢の値（'villages' や 'custom:<id>'）を島の設定に写す
+function chooseScenario(value) {
+  if (value?.startsWith('custom:')) {
+    const sc = findCustom(value.slice(7));
+    state.opts.scenario = sc ? 'custom' : 'free';
+    state.opts.scenarioData = sc ?? null;
+  } else {
+    state.opts.scenario = SCENARIOS[value] ? value : 'free';
+    state.opts.scenarioData = null;
+  }
+}
+
 const settingsArgs = [
-  $('#tab-settings'),
+  $('#settings-main'),
   state.opts,
   (name, value) => {
+    if (name === 'scenario') {
+      chooseScenario(value);
+      return;
+    }
     state.opts[name] = value;
     // 実行中の島にすぐ反映できるもの
     if (['mutationRate', 'searchImage', 'inbreedingAvoidance', 'randomEvents', 'climateCycleYears', 'climateAmplitude'].includes(name)) {
@@ -49,17 +72,181 @@ const settingsArgs = [
     }
     newWorld();
   },
+  {
+    customs: () => customs.list,
+    onEdit: (value) => {
+      const custom = value.startsWith('custom:') ? findCustom(value.slice(7)) : null;
+      openEditor(custom ? draftFrom(null, custom) : draftFrom(value));
+    },
+    onDelete: async (id) => {
+      await deleteScenario(id);
+      if (state.opts.scenarioData?.id === id) chooseScenario('free');
+      await refreshCustoms();
+    },
+    onImport: async (text) => {
+      let sc;
+      try {
+        sc = normalizeScenario(JSON.parse(text));
+      } catch {
+        return '読み込めませんでした（シナリオの JSON ではないようです）。';
+      }
+      const ok = await saveScenario(sc);
+      await refreshCustoms();
+      if (!ok) return 'このブラウザには保存できませんでした。';
+      chooseScenario(`custom:${sc.id}`);
+      renderSettings(...settingsArgs);
+      return `「${sc.label}」を読み込みました。「この設定で新しい島を始める」で遊べます。`;
+    },
+  },
 ];
 renderSettings(...settingsArgs);
+
+async function refreshCustoms() {
+  customs.list = await listScenarios();
+  renderSettings(...settingsArgs);
+  renderStartScreen();
+}
+
+// ───── シナリオ編集 ─────
+// 編集中は、左の地図に「この下書きで始めた 0 年目の島」を出す（遊んでいた島は取っておき、やめたら戻す）
+const editor = { active: false, backup: null, timer: 0, drag: null };
+const scenarioEditor = new ScenarioEditor($('#scenario-editor'), {
+  get defaultCount() {
+    return state.opts.initialCount;
+  },
+  customs: () => customs.list,
+  fromWorld: () => draftFromWorld(editor.backup ?? state.world),
+  onChange: (d) => {
+    mapView.circles = scenarioEditor.circles();
+    clearTimeout(editor.timer);
+    editor.timer = setTimeout(() => previewDraft(d), 150);
+  },
+  onSave: async (d) => {
+    const ok = await saveScenario(normalizeScenario(d));
+    await refreshCustoms();
+    return ok;
+  },
+  onStart: async (d) => {
+    const sc = normalizeScenario(d);
+    await saveScenario(sc);
+    closeEditor(false);
+    await refreshCustoms();
+    chooseScenario(`custom:${sc.id}`);
+    if (!state.opts.scenarioData) state.opts.scenarioData = sc; // 保存できない環境でも遊べるように
+    state.opts.scenario = 'custom';
+    renderSettings(...settingsArgs);
+    newWorld();
+    selectTab('creature');
+  },
+  onClose: () => closeEditor(true),
+});
+
+function openEditor(draft) {
+  if (!editor.active) {
+    editor.active = true;
+    editor.backup = state.world;
+  }
+  setPlaying(false);
+  hideStartScreen();
+  $('#settings-main').hidden = true;
+  $('#scenario-editor').hidden = false;
+  $('.map-wrap').classList.add('placing');
+  selectTab('settings');
+  scenarioEditor.open(draft);
+}
+
+function closeEditor(restoreWorld) {
+  editor.active = false;
+  clearTimeout(editor.timer);
+  $('#settings-main').hidden = false;
+  $('#scenario-editor').hidden = true;
+  $('.map-wrap').classList.remove('placing');
+  mapView.circles = null;
+  if (restoreWorld && editor.backup) showWorld(editor.backup, false);
+  editor.backup = null;
+}
+
+function previewDraft(d) {
+  if (!editor.active) return;
+  let w;
+  try {
+    w = new World({ ...state.opts, scenario: 'custom', scenarioData: d });
+  } catch {
+    return;
+  }
+  showWorld(w, false);
+  mapView.circles = scenarioEditor.circles();
+}
+
+// 今の島から：地質・形・シードと、今の遺伝子の割合を写す
+function draftFromWorld(w) {
+  const d = draftFrom('free');
+  d.label = `${w.island.geology.label}の続き`;
+  d.desc = `${w.year} 年目の島の遺伝子の割合から始める。`;
+  d.opts = { islandShape: w.opts.islandShape, geology: w.island.geologyKey, seed: String(w.opts.seed) };
+  const f = w.history.at(-1)?.freqs;
+  if (!f || !w.creatures.length) return d;
+  for (const t of TRAIT_DEFS) d.traits[t.key] = +(t.loci.reduce((sum, k) => sum + (f[k]?.[t.allele] ?? 0), 0) / t.loci.length).toFixed(3);
+  for (const k of SIMPLE_LOCI) d.freqs[k] = Object.fromEntries(Object.entries(f[k]).map(([a, v]) => [a, +v.toFixed(3)]));
+  for (const k of ['HA1', 'HA2', 'HB1', 'HB2', 'HC1', 'HC2']) d.freqs[k] = Object.fromEntries(Object.entries(f[k]).map(([a, v]) => [a, +v.toFixed(3)]));
+  return d;
+}
+
+// ───── 開始画面（最初に遊び始める前だけ、地図の上に出す） ─────
+const start = { shown: false };
+
+function renderStartScreen() {
+  const el = $('#start-screen');
+  if (!el || !start.shown) return;
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const cards = [
+    ...Object.entries(SCENARIOS).map(([k, v]) => ({ value: k, label: v.label, desc: v.desc })),
+    ...customs.list.map((c) => ({ value: `custom:${c.id}`, label: `自作：${c.label}`, desc: c.desc })),
+  ];
+  el.innerHTML = `<div class="start-inner">
+    <h2>どんな島で始める？</h2>
+    <div class="start-cards">${cards
+      .map((c) => `<button type="button" class="start-card" data-start="${esc(c.value)}"><strong>${esc(c.label)}</strong><span>${esc(c.desc)}</span></button>`)
+      .join('')}</div>
+    <div class="btn-row" style="justify-content:center">
+      <button type="button" data-start-edit>✏️ 自分でシナリオを作る</button>
+      <button type="button" data-start-close>閉じる（このまま眺める）</button>
+    </div></div>`;
+}
+
+function showStartScreen() {
+  start.shown = true;
+  $('#start-screen').hidden = false;
+  renderStartScreen();
+}
+
+function hideStartScreen() {
+  start.shown = false;
+  $('#start-screen').hidden = true;
+}
+
+$('#start-screen').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-start]');
+  if (card) {
+    chooseScenario(card.dataset.start);
+    renderSettings(...settingsArgs);
+    hideStartScreen();
+    newWorld();
+    setPlaying(true);
+    return;
+  }
+  if (e.target.closest('[data-start-edit]')) openEditor(draftFrom('free'));
+  if (e.target.closest('[data-start-close]')) hideStartScreen();
+});
 
 function newWorld() {
   save.tick = -1;
   showWorld(new World(state.opts));
 }
 
-function showWorld(world) {
+function showWorld(world, fresh = true) {
   state.world = world;
-  hideResume();
+  if (fresh) hideResume();
   state.selectedId = null;
   state.pinnedId = null;
   state.lastYear = -1;
@@ -238,7 +425,8 @@ function setSaveStatus(text) {
 
 async function saveNow(manual = false) {
   const w = state.world;
-  if (save.pending || save.busy || w.extinct) return;
+  // シナリオ編集中の地図は下書きのプレビューなので保存しない
+  if (save.pending || save.busy || w.extinct || editor.active) return;
   if (!manual && w.tick === save.tick) return;
   save.busy = true;
   const ok = await saveToBrowser(w);
@@ -278,6 +466,7 @@ $('#resume-bar').addEventListener('click', (e) => {
       Object.assign(state.opts, w.opts);
       renderSettings(...settingsArgs);
       save.tick = w.tick;
+      hideStartScreen();
       showWorld(w);
       setSaveStatus(`${w.year}年目から再開`);
     } catch {
@@ -297,8 +486,14 @@ document.addEventListener('visibilitychange', () => {
 
 // ───── イベント ─────
 
-$('#btn-play').addEventListener('click', () => setPlaying(!state.playing));
+$('#btn-play').addEventListener('click', () => {
+  if (editor.active) closeEditor(true);
+  hideStartScreen();
+  setPlaying(!state.playing);
+});
 $('#btn-step').addEventListener('click', () => {
+  if (editor.active) closeEditor(true);
+  hideStartScreen();
   const w = state.world;
   for (let i = 0; i < 12 && !w.extinct; i++) w.step();
   state.acc = 0;
@@ -350,8 +545,32 @@ $('#btn-islet').addEventListener('click', () => {
   if (!state.world.createIslet()) state.world.addLog('（小島をつくれる沖が見つからなかった）');
   refresh(true);
 });
+// シナリオ編集中：クリックで群れの中心、ドラッグで広さ
 $('#map').addEventListener('pointerdown', (e) => {
-  if (!edit.on) return;
+  if (!editor.active || scenarioEditor.placing == null) return;
+  const p = mapPoint(e);
+  editor.drag = p;
+  $('#map').setPointerCapture(e.pointerId);
+  scenarioEditor.placeGroup(p.x, p.y);
+  mapView.circles = scenarioEditor.circles();
+});
+$('#map').addEventListener('pointermove', (e) => {
+  if (!editor.drag) return;
+  const p = mapPoint(e);
+  const r = Math.hypot(p.x - editor.drag.x, (p.y - editor.drag.y) * 0.75);
+  if (r > 0.02) scenarioEditor.placeGroup(editor.drag.x, editor.drag.y, r);
+  mapView.circles = scenarioEditor.circles();
+});
+const endPlace = () => {
+  if (!editor.drag) return;
+  editor.drag = null;
+  scenarioEditor.hooks.onChange(scenarioEditor.draft);
+};
+$('#map').addEventListener('pointerup', endPlace);
+$('#map').addEventListener('pointercancel', endPlace);
+
+$('#map').addEventListener('pointerdown', (e) => {
+  if (!edit.on || editor.active) return;
   edit.painting = true;
   edit.last = 0;
   $('#map').setPointerCapture(e.pointerId);
@@ -372,7 +591,7 @@ $('#map').addEventListener('pointerleave', () => {
 });
 
 $('#map').addEventListener('click', (e) => {
-  if (edit.on) return;
+  if (edit.on || editor.active) return;
   const c = mapView.pick(state.world, e.clientX, e.clientY);
   state.selectedId = c ? c.id : null;
   // 家系図を見ているときは、選んだ個体を中心に家系図を描き直す
@@ -438,5 +657,7 @@ document.addEventListener('keydown', (e) => {
 
 renderLegend();
 newWorld();
+showStartScreen();
+refreshCustoms();
 offerResume();
 requestAnimationFrame(frame);
