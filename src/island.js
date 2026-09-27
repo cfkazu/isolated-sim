@@ -1,8 +1,12 @@
 // 島の地形生成（バリューノイズ＋中心からの距離による減衰）と、海面・陸地のつながり・地形の編集。
 // 生成直後は最大の陸地だけが島で、ほかの陸地は浅瀬として海面下に沈めてある。
 
-export const TERRAIN = { SEA: 0, BEACH: 1, GRASS: 2, FOREST: 3, ROCK: 4, DRY: 5 };
-export const TERRAIN_LABEL = ['海', '砂浜', '草原', '森', '岩場', '荒れ地'];
+export const TERRAIN = { SEA: 0, BEACH: 1, GRASS: 2, FOREST: 3, ROCK: 4, DRY: 5, ALPINE: 6 };
+export const TERRAIN_LABEL = ['海', '砂浜', '草原', '森', '岩場', '荒れ地', '高山草原'];
+// 高山草原：岩場のうち、山頂より少し下の帯（標高 ALPINE_FROM〜ALPINE_TO）で乾きすぎていない所。
+// 寒さに強い背の低い草が生える（山頂は岩のまま）
+export const ALPINE_FROM = 0.65;
+export const ALPINE_TO = 0.9;
 // 湿り気がこれより低い低地は、乾いた荒れ地（まばらな草と低木。さらに乾けば砂漠）
 export const DRY_BELOW = 0.3;
 // 雨陰の強さ：風上の斜面の登り 1 あたり、風上の山の高さとの差 1 あたりの湿り気の増減
@@ -366,7 +370,7 @@ export class Island {
       let t;
       if (e <= 0) t = TERRAIN.SEA;
       else if (e < beachBand) t = TERRAIN.BEACH;
-      else if (h[i] > rockAbove) t = TERRAIN.ROCK;
+      else if (h[i] > rockAbove) t = h[i] > ALPINE_FROM && h[i] < ALPINE_TO && moisture[i] >= DRY_BELOW ? TERRAIN.ALPINE : TERRAIN.ROCK;
       else if (moisture[i] + forestBias + h[i] * 0.35 > 0.72) t = TERRAIN.FOREST;
       else if (moisture[i] < DRY_BELOW) t = TERRAIN.DRY;
       else t = TERRAIN.GRASS;

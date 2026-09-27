@@ -43,6 +43,11 @@ export const DISPLAY_LEGENDS = {
     ['祖先型のみ', '#9a9a9a'],
   ],
   clan: () => [['家（母系）ごとの色。分家は大本の家と同じ色合いで明るさ違い', 'conic-gradient(#e0892e, #2f7fd8, #3aa655, #c0307a, #e0892e)']],
+  fur: () => [
+    ['毛皮が薄い（暑さに強い）', '#f08c00'],
+    ['ふつう', '#d9d2c5'],
+    ['毛皮が厚い（寒さに強い）', '#1c7ed6'],
+  ],
   alarm: () => [
     ['いつも鳴く（V/V）', '#d9480f'],
     ['ときどき鳴く（V/v）', '#f59f00'],
@@ -172,6 +177,8 @@ export class MapView {
       }
       case 'clan':
         return clanColor(this.world, c.mt);
+      case 'fur':
+        return c.pheno.fur < 0.5 ? lerpColor('#f08c00', '#d9d2c5', c.pheno.fur / 0.5) : lerpColor('#d9d2c5', '#1c7ed6', (c.pheno.fur - 0.5) / 0.5);
       case 'alarm':
         return c.pheno.alarm === 1 ? '#d9480f' : c.pheno.alarm > 0 ? '#f59f00' : '#9a9a9a';
       case 'age':
