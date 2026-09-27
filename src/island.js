@@ -1,8 +1,13 @@
 // 島の地形生成（バリューノイズ＋中心からの距離による減衰）と、海面・陸地のつながり・地形の編集。
 // 生成直後は最大の陸地だけが島で、ほかの陸地は浅瀬として海面下に沈めてある。
 
-export const TERRAIN = { SEA: 0, BEACH: 1, GRASS: 2, FOREST: 3, ROCK: 4 };
-export const TERRAIN_LABEL = ['海', '砂浜', '草原', '森', '岩場'];
+export const TERRAIN = { SEA: 0, BEACH: 1, GRASS: 2, FOREST: 3, ROCK: 4, DRY: 5 };
+export const TERRAIN_LABEL = ['海', '砂浜', '草原', '森', '岩場', '荒れ地'];
+// 湿り気がこれより低い低地は、乾いた荒れ地（まばらな草と低木。さらに乾けば砂漠）
+export const DRY_BELOW = 0.3;
+// 雨陰の強さ：風上の斜面の登り 1 あたり、風上の山の高さとの差 1 あたりの湿り気の増減
+const RAIN_WINDWARD = 1.6;
+const RAIN_SHADOW = 3.2;
 
 function makeNoise(rng, W, H, cell) {
   const gw = Math.ceil(W / cell) + 2;
@@ -35,6 +40,9 @@ export const GEOLOGY = {
     sand: [226, 210, 160],
     rock: [138, 134, 126],
     soil: [96, 74, 52],
+    // 乾いた荒れ地：黄土色の地面と、枯れかけた草
+    drySoil: [196, 168, 116],
+    dryGrass: [168, 160, 92],
     beachBand: 0.07,
     rockAbove: 0.78,
     forestBias: 0,
@@ -47,6 +55,8 @@ export const GEOLOGY = {
     sand: [62, 60, 58],
     rock: [52, 50, 50],
     soil: [70, 56, 44],
+    drySoil: [118, 92, 72],
+    dryGrass: [132, 124, 80],
     beachBand: 0.08,
     rockAbove: 0.5,
     forestBias: 0.04,
@@ -59,6 +69,8 @@ export const GEOLOGY = {
     sand: [240, 236, 222],
     rock: [214, 208, 192],
     soil: [214, 204, 176],
+    drySoil: [232, 220, 186],
+    dryGrass: [206, 198, 146],
     // 乾いて日に焼けた、白っぽい草
     grass: [196, 196, 150],
     forest: [150, 160, 112],
@@ -79,6 +91,7 @@ export const ISLAND_SHAPES = {
 export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer = null, geology = 'lush' } = {}) {
   if (shape === 'archipelago') {
     const isl = generateArchipelago(rng, W, H, namer, geology);
+    isl.applyRainShadow(rng);
     if (geology === 'mixed') isl.assignMixedGeology(rng);
     return isl;
   }
@@ -90,6 +103,7 @@ export function generateIsland(rng, { W = 160, H = 120, shape = 'single', namer 
       island.reclassify();
     }
   }
+  island.applyRainShadow(rng);
   if (geology === 'mixed') island.assignMixedGeology(rng);
   return island;
 }
@@ -283,6 +297,43 @@ export class Island {
     this.reclassify();
   }
 
+  // 雨陰：いつも同じ向きから湿った風が吹くとして、湿り気を決め直す。
+  // 風上の斜面（風に向かって登る所）は雨が多く、山を越えた風下は乾く（ハワイやカナリア諸島のように）。
+  // 風上側で越えてきたいちばん高い山（遠いほど効きは弱まる）と、ここの標高の差が大きいほど乾く
+  applyRainShadow(rng) {
+    const { W, H, elevation: h } = this;
+    const a = rng.next() * Math.PI * 2;
+    this.wind = a; // 風の吹いていく向き（ラジアン、地図の右が 0、下向きが正）
+    const ux = -Math.cos(a);
+    const uy = -Math.sin(a) * (W / H) * 0.75; // 風上へ 1 マスずつ（縦横の比をそろえる）
+    const L = 36;
+    const at = (x, y) => {
+      const xi = Math.round(x);
+      const yi = Math.round(y);
+      return xi < 0 || yi < 0 || xi >= W || yi >= H ? 0 : Math.max(0, h[yi * W + xi]);
+    };
+    const out = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        const here = Math.max(0, h[i]);
+        // 風上へたどり、海に出たらそこで打ち切る（風は海を渡るあいだに湿り気を取り戻す）
+        let ridge = 0;
+        for (let k = 1; k <= L; k++) {
+          const e = at(x + ux * k, y + uy * k);
+          if (e <= 0) break;
+          ridge = Math.max(ridge, e * (1 - (0.6 * k) / L));
+        }
+        const rise = here - at(x + ux * 3, y + uy * 3);
+        const shadow = Math.max(0, ridge - here);
+        const m = 0.5 + (this.moisture[i] - 0.5) * 0.6 + RAIN_WINDWARD * Math.max(0, rise) - RAIN_SHADOW * shadow;
+        out[i] = Math.max(0, Math.min(1, m));
+      }
+    }
+    this.moisture = out;
+    this.reclassify();
+  }
+
   cellAt(x, y) {
     const cx = Math.min(this.W - 1, Math.max(0, Math.floor(x * this.W)));
     const cy = Math.min(this.H - 1, Math.max(0, Math.floor(y * this.H)));
@@ -317,6 +368,7 @@ export class Island {
       else if (e < beachBand) t = TERRAIN.BEACH;
       else if (h[i] > rockAbove) t = TERRAIN.ROCK;
       else if (moisture[i] + forestBias + h[i] * 0.35 > 0.72) t = TERRAIN.FOREST;
+      else if (moisture[i] < DRY_BELOW) t = TERRAIN.DRY;
       else t = TERRAIN.GRASS;
       terrain[i] = t;
       if (t !== TERRAIN.SEA) this.landCells.push(i);

@@ -5,7 +5,7 @@
 //   - 目立ちやすさ = 体色と、いる場所の地面の色との差。
 //   - 捕食者は目立つ獲物ほど見つけやすく、よく見かける色を重点的に探す（探索像）。
 
-import { TERRAIN } from './island.js';
+import { TERRAIN, DRY_BELOW } from './island.js';
 
 export const FOOD_CELL = 4;
 const ROOT = 0.1;
@@ -34,6 +34,9 @@ const TERRAIN_CAP = {
   [TERRAIN.FOREST]: 0.75,
 };
 
+// 荒れ地の草の上限：湿り気に比例して、砂漠に近い所（湿り気 0）で 0.45、草原との境（DRY_BELOW）で 0.8
+const dryCap = (m) => 0.45 + (0.35 * Math.max(0, m)) / DRY_BELOW;
+
 const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // 目立ちやすさ：RGB の色差を 0.1〜1 に。完全に溶け込んでも、動けば少しは見つかる。
@@ -52,6 +55,7 @@ export class Vegetation {
     this.cap = new Float32Array(n);
     this.veg = new Float32Array(n);
     this.elev = new Float32Array(n); // 草のマスの平均標高（陸地のみ）
+    this.dry = new Float32Array(n);
     this.recomputeCaps();
     for (let i = 0; i < n; i++) this.veg[i] = this.cap[i] * 0.8;
   }
@@ -65,13 +69,15 @@ export class Vegetation {
     const elev = new Float32Array(n);
     const count = new Float32Array(n);
     const land = new Float32Array(n);
+    const dry = new Float32Array(n);
     for (let y = 0; y < island.H; y++) {
       for (let x = 0; x < island.W; x++) {
         const f = Math.floor(y / FOOD_CELL) * this.FW + Math.floor(x / FOOD_CELL);
         const i = y * island.W + x;
         const t = island.terrain[i];
         const g = island.geologyAt(i);
-        cap[f] += t === TERRAIN.BEACH ? g.beachCap : t === TERRAIN.ROCK ? g.rockCap : TERRAIN_CAP[t];
+        cap[f] += t === TERRAIN.BEACH ? g.beachCap : t === TERRAIN.ROCK ? g.rockCap : t === TERRAIN.DRY ? dryCap(island.moisture[i]) : TERRAIN_CAP[t];
+        if (t === TERRAIN.DRY) dry[f]++;
         count[f]++;
         if (island.terrain[i] !== TERRAIN.SEA) {
           elev[f] += island.elevation[i];
@@ -82,6 +88,7 @@ export class Vegetation {
     for (let i = 0; i < n; i++) {
       this.cap[i] = (cap[i] / count[i]) * this.fertility;
       this.elev[i] = land[i] ? elev[i] / land[i] : 0;
+      this.dry[i] = land[i] ? dry[i] / land[i] : 0; // 荒れ地の割合
       this.veg[i] = Math.min(this.cap[i], Math.max(this.veg[i], ROOT * this.cap[i]));
     }
   }
@@ -140,10 +147,10 @@ export class Vegetation {
   // その場所の気温で成長速度が決まる（ロジスティック成長）。0℃ 以下（雪の下）では育たない。
   // localTemp(標高, 南北の位置) は標高が高いほど、北ほど寒い。
   grow(localTemp, drought) {
-    const dk = drought ? 0.25 : 1;
     for (let i = 0; i < this.veg.length; i++) {
       const K = this.cap[i];
       if (K <= 0) continue;
+      const dk = drought ? 0.25 : 1;
       const r = 0.45 * Math.max(0, Math.min(1, localTemp(this.elev[i], (Math.floor(i / this.FW) + 0.5) / this.FH) / 16)) * dk;
       if (r === 0) continue;
       const v = this.veg[i];
@@ -179,6 +186,7 @@ export function groundOfCell(world, i) {
   const frac = Math.min(1, world.vegetation.smoothFraction(i) * 1.15);
   // 岩場にもまばらに草が生える島がある（火山島の溶岩台地など）
   if (t === TERRAIN.ROCK) return g.rockCap > 0.2 ? lerp3(g.rock, GROUND_RGB.grass, frac * g.rockCap) : g.rock;
+  if (t === TERRAIN.DRY) return lerp3(g.drySoil, g.dryGrass, frac * 0.8);
   return lerp3(g.soil, t === TERRAIN.FOREST ? (g.forest ?? GROUND_RGB.forest) : (g.grass ?? GROUND_RGB.grass), frac);
 }
 

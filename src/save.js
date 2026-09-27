@@ -158,6 +158,7 @@ export function snapshot(world) {
       seaLevel: isl.seaLevel,
       geologyKey: isl.geologyKey,
       geoMap: isl.geoMap,
+      wind: isl.wind ?? null,
       landmass: isl.landmass,
       landmasses: isl.landmasses,
       homeId: isl.homeId,
@@ -194,6 +195,7 @@ export function restore(snap) {
     island.geoMap = new Uint8Array(s.geoMap);
     island.geology = island.geologyAt(island.landCells[0] ?? 0);
   }
+  island.wind = s.wind ?? undefined;
   island.seaLevel = s.seaLevel;
   island.landmass = new Int32Array(s.landmass);
   island.landmasses = s.landmasses;

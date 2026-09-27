@@ -269,6 +269,37 @@ export class MapView {
     }
 
     // 地形編集の筆
+    // 風向き（湿った風がどちらから吹くか。風上は雨が多く、山の風下は乾く）
+    if (world.island.wind != null) {
+      const a = world.island.wind;
+      const cx = w - 26 * scale - 10;
+      const cy = 26 * scale + 10;
+      const r = 16 * scale + 4;
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#1c5d99';
+      ctx.fillStyle = '#1c5d99';
+      ctx.lineWidth = 2.5;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      ctx.beginPath();
+      ctx.moveTo(cx - dx * r, cy - dy * r);
+      ctx.lineTo(cx + dx * r, cy + dy * r);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * r, cy + dy * r);
+      ctx.lineTo(cx + dx * (r - 7) - dy * 5, cy + dy * (r - 7) + dx * 5);
+      ctx.lineTo(cx + dx * (r - 7) + dy * 5, cy + dy * (r - 7) - dx * 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.font = `${Math.round(9 * scale + 3)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('風', cx, cy + r + 4 + 9 * scale);
+      ctx.restore();
+    }
     // シナリオ編集：群れの置き場所（半径 r は横幅に対する割合。縦は 3:4 の比で同じ長さになる）
     if (this.circles?.length) {
       ctx.save();
