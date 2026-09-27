@@ -362,3 +362,13 @@ test('島ごとの地質と南北の気温差：群島の島ごとに地質が�
   const u = new World({ seed: 'mixed', islandShape: 'archipelago' });
   assert.equal(u.localTemp(0.2, 0), u.localTemp(0.2, 1));
 });
+
+test('産む負担：子を産んだ母親は、身ごもった子の数だけやせる', () => {
+  const w = new World({ seed: 'litter' });
+  for (let m = 0; m < 12 * 3 && w.month !== 2; m++) w.step();
+  const before = new Map(w.creatures.filter((c) => c.sex === 'F').map((c) => [c.id, [c.condition, c.offspring]]));
+  w._breed();
+  const mothers = w.creatures.filter((c) => before.has(c.id) && c.offspring > before.get(c.id)[1]);
+  assert.ok(mothers.length > 0);
+  for (const f of mothers) assert.ok(f.condition <= before.get(f.id)[0] - 0.08 + 1e-9);
+});

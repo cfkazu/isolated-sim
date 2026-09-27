@@ -110,6 +110,8 @@ const HOME_PULL = 0.12;
 const HOME_DRIFT = 0.02;
 // 好みが最大のメスが相手探しに費やす時間のせいで、その月に繁殖できる確率が何割減るか
 const CHOOSINESS_COST = 0.2;
+// 身ごもった子 1 匹あたり、母親の栄養状態が下がる量（妊娠・授乳の負担）
+const LITTER_COST = 0.08;
 
 // 正直なシグナル：飾りの見栄えは栄養状態しだい。やせたオスは長い尾を保てず、弱くしか光れない。
 export const tailDisplay = (c) => c.pheno.tail * c.condition;
@@ -779,6 +781,7 @@ export class World {
       // 雑種の不和合：両親の稔性が低いほど、卵や精子がうまく働かず子ができない
       const fertile = f.pheno.fertility * mate.pheno.fertility;
       let born = 0;
+      let conceived = 0;
       for (let k = 0; k < litter; k++) {
         if (fertile < 1 && rng.next() > fertile) {
           this.counters.infertile++;
@@ -787,6 +790,7 @@ export class World {
         const egg = makeGamete(f.genome, 'F', rng, o.mutationRate);
         const sperm = makeGamete(mate.genome, 'M', rng, o.mutationRate);
         const z = fertilize(egg, sperm);
+        conceived++;
         if (express(z.genome).lethal) {
           this.counters.stillborn++;
           continue;
@@ -810,6 +814,8 @@ export class World {
         });
         born++;
       }
+      // 身ごもって産み、乳をやるぶん、母親はやせる（死産の子も途中まではお腹で育てている）
+      f.condition = Math.max(0.05, f.condition - LITTER_COST * conceived);
       f.offspring += born;
       mate.offspring += born;
       f.yearOffspring += born;
