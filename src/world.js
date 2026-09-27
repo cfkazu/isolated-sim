@@ -102,6 +102,8 @@ const PREFERENCE_SCALE = 6;
 const DISPERSAL_RANGE = 0.3;
 // 旅の疲れ：島の幅の DISPERSAL_RANGE 分を歩くと、栄養状態がこれだけ下がる
 const DISPERSAL_COST = 0.4;
+// 旅立ちで 1 か月に歩ける距離（島の幅に対する割合。餌を探して動くときと同じくらい）
+const DISPERSAL_STEP = 0.03;
 // 満ち足りているときの散歩は、ねぐら（ホームレンジの中心）へこの割合ずつ引き戻される
 const HOME_PULL = 0.12;
 // ねぐらは今いる場所へ少しずつ移っていく（1 か月あたり）
@@ -315,6 +317,7 @@ export class World {
       hy: y,
       coat: null,
       dispersed: founder,
+      dest: null, // 旅立ちの目的地（歩いている途中だけ）
       age,
       birthTick: this.tick - age,
       fatherId,
@@ -658,14 +661,8 @@ export class World {
       const nx = c.x + Math.cos(a) * d;
       const ny = c.y + Math.sin(a) * d * (4 / 3);
       if (nx < 0 || ny < 0 || nx >= 1 || ny >= 1 || !this._sameLand(c, nx, ny)) continue;
-      const occ = this._cellCount;
-      if (occ) {
-        occ[this.vegetation.cellAt(c.x, c.y)]--;
-        occ[this.vegetation.cellAt(nx, ny)]++;
-      }
-      c.x = c.hx = nx;
-      c.y = c.hy = ny;
-      c.condition = Math.max(0.05, c.condition - (DISPERSAL_COST * d) / DISPERSAL_RANGE);
+      // 目的地を決めて、何か月かかけて歩いていく（_travel）
+      c.dest = { x: nx, y: ny };
       this.counters.dispersals++;
       this.counters.dispersalDist[c.sex] += d;
       this.counters.dispersers[c.sex]++;
@@ -673,9 +670,35 @@ export class World {
     }
   }
 
+  // 旅立ちの途中：目的地へ 1 か月に DISPERSAL_STEP ずつ歩く。歩いた分だけ疲れる。
+  // 途中が海や別の陸地で進めなければ、そこを新しいねぐらにする
+  _travel(c) {
+    const dx = c.dest.x - c.x;
+    const dy = (c.dest.y - c.y) * 0.75;
+    const dist = Math.hypot(dx, dy);
+    const step = Math.min(DISPERSAL_STEP, dist);
+    const k = dist > 0 ? step / dist : 0;
+    const nx = c.x + dx * k;
+    const ny = c.y + (dy * k) / 0.75;
+    if (step > 0 && this._sameLand(c, nx, ny)) {
+      const occ = this._cellCount;
+      if (occ) {
+        occ[this.vegetation.cellAt(c.x, c.y)]--;
+        occ[this.vegetation.cellAt(nx, ny)]++;
+      }
+      c.x = nx;
+      c.y = ny;
+      c.condition = Math.max(0.05, c.condition - (DISPERSAL_COST * step) / DISPERSAL_RANGE);
+    }
+    if (step >= dist - 1e-9 || !this._sameLand(c, nx, ny)) c.dest = null;
+    c.hx = c.x;
+    c.hy = c.y;
+  }
+
   _move(c) {
-    if (!c.dispersed && c.age >= this.maturityOf(c)) {
-      this._disperse(c);
+    if (!c.dispersed && c.age >= this.maturityOf(c)) this._disperse(c);
+    if (c.dest) {
+      this._travel(c);
       return;
     }
     // ねぐらは今いる場所へ少しずつ移る（餌を追って移り住む）
@@ -1142,6 +1165,7 @@ export class World {
       const shore = island.nearestLand(c.x, c.y, 6);
       if (shore) {
         c.x = c.px = c.hx = shore.x;
+        c.dest = null;
         c.y = c.py = c.hy = shore.y;
       } else this._kill(c, 'sea');
     }
@@ -1235,6 +1259,7 @@ export class World {
         }
         g.hx = g.x;
         g.hy = g.y;
+        g.dest = null;
       }
       if (landed.land !== home) {
         const to = island.landmassById(landed.land);
