@@ -1114,8 +1114,8 @@ export class World {
     const r = this.rng;
     if (r.chance(0.06)) this.triggerEpidemic();
     if (r.chance(0.05)) this.triggerFamine();
-    // 寒冷期・温暖期は気候の波として自然に来るので、ランダムには起こさない。超寒冷期だけがまれな出来事
-    if (!this.push.kind && r.chance(0.0015)) this.triggerSuperColdEra();
+    // 寒冷期・温暖期は気候の波として自然に来るので、ランダムには起こさない。
+    // 超寒冷期は強すぎる（小さな島ではほぼ全滅する）ので、神の介入とシナリオの予定でだけ起こす
     if (r.chance(0.015)) this.triggerStorm();
     if (this.predators === 0 && r.chance(PREDATOR.immigrationChance)) {
       this.predators = 2;

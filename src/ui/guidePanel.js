@@ -116,7 +116,7 @@ export function renderSettings(el, opts, onChange, onRestart, extra = {}) {
     <label class="field">捕食者の探索像の強さ k<input type="number" name="searchImage" step="0.1" min="1" max="4" value="${o.searchImage}"></label>
     <p class="hint">k = 1 なら捕食者は目立つ獲物を狙うだけ。k が大きいほど「よく見かける色」を重点的に探すので、少数派の色が有利になる。</p>
     <label class="check"><input type="checkbox" name="inbreedingAvoidance" ${o.inbreedingAvoidance ? 'checked' : ''}> 近親交配を避ける（半きょうだい以上の近親とは交配しない）</label>
-    <label class="check"><input type="checkbox" name="randomEvents" ${o.randomEvents ? 'checked' : ''}> ランダムな出来事（疫病・干ばつ・大嵐・超寒冷期）</label>
+    <label class="check"><input type="checkbox" name="randomEvents" ${o.randomEvents ? 'checked' : ''}> ランダムな出来事（疫病・干ばつ・大嵐）</label>
     <label class="field">気候の周期（氷期から次の氷期まで）<select name="climateCycleYears" data-num="1">${[300, 600, 1000]
       .map((y) => `<option value="${y}" ${o.climateCycleYears === y ? 'selected' : ''}>${y} 年</option>`)
       .join('')}</select></label>
