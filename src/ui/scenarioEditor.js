@@ -76,6 +76,7 @@ export class ScenarioEditor {
         <label class="field">島の形${sel('opts.islandShape', [[null, '設定のまま'], ...Object.entries(ISLAND_SHAPES).map(([k, v]) => [k, v.label])], o.islandShape)}</label>
         <label class="field">地質${sel('opts.geology', [[null, '設定のまま'], ['auto', 'おまかせ'], ...Object.entries(GEOLOGY).map(([k, v]) => [k, v.label]), ['mixed', '島ごとにばらばら']], o.geology)}</label>
         <label class="field">南北の気温差${sel('opts.latitude', [[null, '設定のまま'], [0, 'なし'], [3, '小さい（±3℃）'], [6, '大きい（±6℃）']], o.latitude)}</label>
+        <label class="field">高低差（山の上と海辺の気温の差）${sel('opts.relief', [[null, '設定のまま'], [1, 'ふつう'], [1.5, '大きい'], [2, 'とても大きい']], o.relief)}</label>
         <label class="field">気候の始まり${sel('climateStart', CLIMATE_STARTS, d.climateStart)}</label>
         <label class="field">シード（空欄なら設定のまま）<input type="text" data-f="opts.seed" value="${esc(o.seed ?? '')}"></label>
         <label class="field">最初の個体数<input type="number" min="2" max="1000" data-f="opts.initialCount" data-num value="${o.initialCount ?? ''}" placeholder="${this.hooks.defaultCount}"></label>

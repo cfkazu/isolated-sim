@@ -102,6 +102,19 @@ export const SCENARIOS = {
     events: [{ year: 30, event: 'supercold' }],
     watch: ['超寒冷期のあと、換毛の遺伝子 W と毛皮の厚さはどう変わるか。暖かくなったら白い冬毛はどうなるか。'],
   },
+  mountain: {
+    label: '山の民と海の民',
+    desc: '高低差の大きい島。山の上は寒く、海辺は暑い。毛皮の厚い一族が山頂に、毛皮の薄い群れが島じゅうに住んでいる。',
+    opts: { islandShape: 'single', relief: 1.5 },
+    groups: [
+      { name: '山の民', share: 0.3, place: { x: 0.5, y: 0.5, r: 0.08 }, clan: true, traits: { fur: 0.9 } },
+      { name: '海の民', share: 0.7, traits: { fur: 0.15 } },
+    ],
+    watch: [
+      '地図の表示を「毛皮の厚さ」にして、山の上の青（寒さに強い）と海辺のオレンジ（暑さに強い）の境目を見る。',
+      '山の民の家（集団タブ）は山の上で生き残るか。寒い時代・暖かい時代に、山の上の個体数はどう変わるか。',
+    ],
+  },
   bottleneck: {
     label: '十匹からの出発',
     desc: '島に着いたのは 10 匹だけ。近親交配は避けられない。',
@@ -167,6 +180,7 @@ function cleanOpts(raw) {
   if (ISLAND_SHAPES[raw.islandShape]) o.islandShape = raw.islandShape;
   if (raw.geology === 'auto' || raw.geology === 'mixed' || GEOLOGY[raw.geology]) o.geology = raw.geology;
   if (raw.latitude != null) o.latitude = num(raw.latitude, 0, 10, 0);
+  if (raw.relief != null) o.relief = num(raw.relief, 0.5, 3, 1);
   if (raw.initialCount != null) o.initialCount = Math.round(num(raw.initialCount, 2, 1000, 100));
   if (raw.fertility != null) o.fertility = num(raw.fertility, 0.1, 5, 1);
   if (raw.initialPredators != null) o.initialPredators = Math.round(num(raw.initialPredators, 0, 100, 6));

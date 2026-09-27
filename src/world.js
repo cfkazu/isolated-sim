@@ -27,6 +27,7 @@ export const DEFAULTS = {
   islandShape: 'single', // 島の形：'single'（ひとつの島）・'islets'（離島のある島）・'archipelago'（群島）
   geology: 'auto', // 地質：'auto'（シードで決まる）・'lush'・'volcanic'・'coral'・'mixed'（島ごとにばらばら）
   latitude: 0, // 南北の気温差：北端が何 ℃ 寒く、南端が何 ℃ 暖かいか
+  relief: 1, // 高低差：標高による気温の差の倍率（中腹を中心に、2 なら海辺は +10℃、山頂は −10℃）
   maxAgeYears: 15, // この年齢で必ず死ぬ
   maturityMonths: 24,
   mutationRate: 0.0005, // 1 配偶子・1 遺伝子座あたり
@@ -380,8 +381,11 @@ export class World {
 
   // その場所の気温：海沿いは暖かく、山の上ほど寒い（標高 0 で +7℃、標高 1 で -13℃）。
   // 南北の気温差（opts.latitude）があれば、地図の上端（北）は latitude ℃ 寒く、下端（南）は latitude ℃ 暖かい
+  // 高低差（opts.relief）が大きい島ほど、標高による気温の差が大きい。中腹（標高 0.5）はそのままで、
+  // 海辺はより暑く、山の上はより寒くなる
   localTemp(elevation, y = 0.5) {
-    return this.currentTemp + 7 - 20 * elevation + (this.opts.latitude ?? 0) * (2 * y - 1);
+    const relief = this.opts.relief ?? 1;
+    return this.currentTemp + 7 - 20 * elevation - 20 * (relief - 1) * (elevation - 0.5) + (this.opts.latitude ?? 0) * (2 * y - 1);
   }
 
   // 砂浜以外の陸地のうち、雪に覆われている割合
