@@ -9,7 +9,7 @@ import { Vegetation } from './ecology.js';
 import { Pedigree } from './pedigree.js';
 import { makeName } from './names.js';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 const COLORS = ['black', 'green', 'white'];
 const PATTERNS = ['spots', 'stripes', 'both', 'plain'];

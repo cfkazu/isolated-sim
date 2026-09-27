@@ -67,7 +67,7 @@ export const INHERITANCE = {
   deleterious: {
     label: '劣性有害（遺伝的荷重）',
     short: '劣性有害',
-    desc: 'd/d になると体が弱り、死亡率が上がる。3 つの遺伝子座に散らばる。近親交配が進むとホモ接合が増え「近交弱勢」が起きる。',
+    desc: 'd/d になると体が弱り、死亡率が上がる。4 つの遺伝子座に散らばる。近親交配が進むとホモ接合が増え「近交弱勢」が起きる。1 つは X 染色体の上にあり、オス（XY）は d を 1 本持つだけで発症する（血友病や色覚の違いがオスに多いのと同じ）。メスは 2 本目の X で補えるので、オスより長生きしやすい。',
   },
 };
 
@@ -248,6 +248,8 @@ export const LOCI = [
   limited('PG2', 'C3', 68, 'prefGlow', '発光への好み2', 0.3),
   poly('SZ4', 'C3', 75, 'size', 4),
   del('DL3', 'C3', 85, 3),
+  // X 染色体の上の有害因子：オスは X が 1 本しかないので、d を 1 本持つだけで発症する
+  del('DL4', 'X', 70, 4),
   dmi('HA2', 'C3', 57, '不和合A-2', 1),
   dmi('HB2', 'X', 12, '不和合B-2', 1),
   dmi('HC2', 'X', 45, '不和合C-2', 1),
@@ -484,7 +486,8 @@ export function express(genome) {
   const lethal = allelesAt(genome, 'LET').every((a) => a === 'l');
 
   let load = 0;
-  for (const i of DEL_KEYS) if (genome.m[i] === 'd' && genome.p[i] === 'd') load++;
+  // オスの X 連鎖座（父由来側が null）は 1 本だけで決まる
+  for (const i of DEL_KEYS) if (genome.m[i] === 'd' && (genome.p[i] === 'd' || genome.p[i] === null)) load++;
 
   const fertility = dmiFertility(genome);
   // エピスタシス：色素の遺伝子が c/c なら、体色・模様に関係なく色が抜ける

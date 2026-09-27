@@ -234,3 +234,22 @@ test('エピスタシス：K/w C/c どうしの子は 黒 9：白 3：アルビ�
   assert.ok(Math.abs(k.white / n - 3 / 16) < 0.02);
   assert.ok(Math.abs(k.albino / n - 4 / 16) < 0.02);
 });
+
+test('X の上の有害因子：オスは d が 1 本で発症し、メスは d/D なら健康', () => {
+  const i = LOCI.findIndex((l) => l.key === 'DL4');
+  const base = (sex) => {
+    const rng = createRng('x-del');
+    const g = randomGenome(sex, rng);
+    for (const l of LOCI.keys()) if (LOCI[l].mode === 'deleterious') (g.m[l] = 'D'), g.p[l] !== null && (g.p[l] = 'D');
+    return g;
+  };
+  const male = base('M');
+  male.m[i] = 'd';
+  assert.equal(male.p[i], null);
+  assert.equal(express(male).load, 1);
+  const female = base('F');
+  female.m[i] = 'd';
+  assert.equal(express(female).load, 0);
+  female.p[i] = 'd';
+  assert.equal(express(female).load, 1);
+});

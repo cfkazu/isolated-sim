@@ -158,7 +158,7 @@ function geneCards(c) {
   const [p1, p2] = al('PAT');
   const glowAl = al('GLW');
   const hetVit = ph.resistance > 0.8;
-  const dl = ['DL1', 'DL2', 'DL3'];
+  const dl = ['DL1', 'DL2', 'DL3', 'DL4'];
   const dCount = dl.filter((k) => al(k).includes('d')).length;
 
   const looks = [
@@ -209,10 +209,10 @@ function geneCards(c) {
     card('免疫型', hetVit ? 'A/B（強い）' : ph.resistance > 0.5 ? 'A/A' : 'B/B', chips('VIT', () => false), hetVit ? 'ヘテロなので病気に最も強い' : '', '超優性'),
     card('致死因子', '健康', chips('LET', (a) => a === 'l'), al('LET').includes('l') ? '保因者：同じ保因者との子の 1/4 は生まれない' : '', '劣性致死'),
     card(
-      '有害因子（3 座）',
+      '有害因子（4 座）',
       ph.load ? `発症 ×${ph.load}` : dCount ? '健康（保因者）' : '健康',
-      `<div class="gchips">${dl.map((k) => al(k).map((a) => chip(a, a === 'd' && !(al(k)[0] === 'd' && al(k)[1] === 'd'))).join('')).join('<span class="muted"> · </span>')}</div>`,
-      ph.load ? 'd/d の座があり体が弱い' : dCount ? `${dCount} 座で d を隠し持つ` : '',
+      `<div class="gchips">${dl.map((k) => al(k).map((a) => chip(a, a === 'd' && al(k).includes('D'))).join('')).join('<span class="muted"> · </span>')}</div>`,
+      ph.load ? (male && al('DL4')[0] === 'd' ? 'X の上の d が表に出ている（オスは X が 1 本）。体が弱い' : 'd/d の座があり体が弱い') : dCount ? `${dCount} 座で d を隠し持つ` : '',
       '劣性有害',
     ),
     card(

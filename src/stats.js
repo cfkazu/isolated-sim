@@ -516,13 +516,13 @@ export function mendelianSummary(creatures, freqs = alleleFrequencies(creatures)
     note: `${pairText}。組ごとに東か西のどちらかに統一されると、島の中では子ができにくい個体がいなくなる。別々に統一された島どうしの雑種は子ができにくい。`,
   });
 
-  const dl = ['DL1', 'DL2', 'DL3'];
+  const dl = ['DL1', 'DL2', 'DL3', 'DL4'];
   const sick = count((c) => c.pheno.load > 0);
   const dCarrier = count((c) => c.pheno.load === 0 && dl.some((k) => has(c, k, 'd')));
   const dFreq = dl.reduce((a, k) => a + freqs[k].freq.d, 0) / dl.length;
   cards.push({
     key: 'DL1',
-    title: '有害因子（3 座）',
+    title: '有害因子（4 座）',
     segments: [
       { label: '発症（d/d）', value: sick / n, color: '--bad' },
       { label: '保因者', value: dCarrier / n, color: '--series-2' },
@@ -530,7 +530,7 @@ export function mendelianSummary(creatures, freqs = alleleFrequencies(creatures)
     ],
     alleles: [
       { label: 'D（正常）', value: 1 - dFreq, color: '--grid' },
-      { label: 'd（有害・3 座平均）', value: dFreq, color: '--series-2' },
+      { label: 'd（有害・4 座平均）', value: dFreq, color: '--series-2' },
     ],
     note: `発症 ${pctText(sick / n)}、保因者 ${pctText(dCarrier / n)}。近親交配が進むと発症が増える（近交弱勢）。`,
   });

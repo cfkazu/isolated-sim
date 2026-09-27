@@ -42,7 +42,7 @@ export const CLIMATE_STARTS = [
 // value は allele の割合（2 対立遺伝子の座では、残りがもう一方になる）
 export const TRAIT_DEFS = [
   ...POLYGENIC_TRAITS.map((t) => ({ key: t.trait, label: `${t.label}（＋の割合）`, loci: t.loci, allele: '+' })),
-  { key: 'del', label: '有害因子（3 座の d の割合）', loci: LOCI.filter((l) => l.mode === 'deleterious').map((l) => l.key), allele: 'd' },
+  { key: 'del', label: '有害因子（4 座の d の割合）', loci: LOCI.filter((l) => l.mode === 'deleterious').map((l) => l.key), allele: 'd' },
 ];
 const TRAIT_BY_KEY = Object.fromEntries(TRAIT_DEFS.map((t) => [t.key, t]));
 
