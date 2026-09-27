@@ -480,8 +480,23 @@ function draw() {
     selected: sel,
     related: relatedOf(sel),
     frac: state.playing ? state.acc : 1,
+    pinned: findCreature(state.pinnedId),
+    hover: state.hover,
   });
 }
+
+// マウスを乗せた個体を強調する（地形編集中・シナリオ編集中は出さない）
+$('#map').addEventListener('mousemove', (e) => {
+  if (edit.on || editor.active) {
+    state.hover = null;
+    return;
+  }
+  state.hover = mapView.pick(state.world, e.clientX, e.clientY);
+  $('#map').style.cursor = state.hover ? 'pointer' : '';
+});
+$('#map').addEventListener('mouseleave', () => {
+  state.hover = null;
+});
 
 let last = performance.now();
 function frame(now) {

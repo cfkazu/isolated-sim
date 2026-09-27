@@ -1437,3 +1437,13 @@ details.full-genes summary {
     z-index: 3;
   }
 }
+
+/* 「かんたん／くわしく」 */
+.simple .detail {
+  display: none !important;
+}
+
+.detail-toggle {
+  display: inline-flex;
+  margin-bottom: 10px;
+}

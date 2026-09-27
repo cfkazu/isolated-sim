@@ -9,7 +9,7 @@ import {
 } from '../genes.js';
 import { alleleFrequencies, genotypeTable, mendelianSummary } from '../stats.js';
 import { Chart } from './charts.js';
-import { pct, alleleColor, alleleLabel, stackBar } from './panelUtil.js';
+import { pct, alleleColor, alleleLabel, stackBar, detailToggle } from './panelUtil.js';
 
 export class GenesPanel {
   constructor(el) {
@@ -22,6 +22,7 @@ export class GenesPanel {
       <h3>量的形質（複数の遺伝子座の合計）</h3>
       <p class="small muted">全遺伝子座を合わせた「＋」の数ごとの個体数。左端が＋0（最も小さい・短い・弱い）、右端がすべて＋。</p>
       <div id="poly-traits" class="gsum"></div>
+      <div class="detail">
       <h2 id="gene-detail" style="margin-top:22px">遺伝子座ごとの詳細</h2>
       <label>遺伝子座 <select id="locus-select">${LOCI.map((l) => `<option value="${l.key}">${l.name}（${INHERITANCE[l.mode].short}）</option>`).join('')}</select></label>
       <p id="locus-desc" class="small muted"></p>
@@ -29,7 +30,8 @@ export class GenesPanel {
       <h3>遺伝子型：観測数とハーディー・ワインベルグ期待数</h3>
       <div id="hw-table"></div>
       <h3>全遺伝子座の対立遺伝子頻度（現在）</h3>
-      <div id="all-loci"></div>`;
+      <div id="all-loci"></div>
+      </div>`;
     this.chart = new Chart(el.querySelector('#locus-chart'), {
       title: '対立遺伝子頻度の推移',
       kind: 'stack',
@@ -45,9 +47,12 @@ export class GenesPanel {
       if (!b) return;
       this.key = b.dataset.locus;
       el.querySelector('#locus-select').value = this.key;
+      // カードを押したら、その遺伝子の歴史を見せるために「くわしく」にする
+      if (!this.toggle.detailed) this.toggle.set(true);
       this.update(this.world);
       el.querySelector('#gene-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
+    this.toggle = detailToggle(el, 'genes', () => this.world && this.update(this.world));
   }
 
   update(world) {

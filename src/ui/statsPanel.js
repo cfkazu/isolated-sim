@@ -3,19 +3,19 @@
 import { islandStats, clanProfiles } from '../stats.js';
 import { DEATH_CAUSES } from '../world.js';
 import { Chart } from './charts.js';
-import { pct, idLink, stackBar } from './panelUtil.js';
+import { pct, idLink, stackBar, detailToggle } from './panelUtil.js';
 
 export class StatsPanel {
   constructor(el) {
     this.el = el;
     el.innerHTML = `<div id="stats-tiles" class="quick-stats"></div><div id="stats-charts"></div>
-      <h3>昨年の死因</h3><div id="stats-deaths" class="bars"></div>
+      <div class="detail"><h3>昨年の死因</h3><div id="stats-deaths" class="bars"></div></div>
       <h3>島ごと</h3>
       <div id="islands"></div>
       <h3>いまの家（母系）</h3>
       <p class="small muted">家は母から子へ受け継がれ、まれにミトコンドリアの突然変異で分家が生まれます（生きている子孫が 10 匹に育つと家として独立）。字下げは分かれた元の家。家の下の小さな字は、島全体と比べてはっきり違う遺伝子（8 匹以上の家）。遺伝子の半分はよその家の父から来るので、家の特徴はふつう薄まっていきますが、縄張りで近所どうしが結ばれると残りやすくなります。</p>
       <div id="clan-tree" class="bars clan-tree"></div>
-      <h3>創始者の系統</h3><div id="founders-chart"></div><div id="founders" class="bars"></div>`;
+      <div class="detail"><h3>創始者の系統</h3><div id="founders-chart"></div><div id="founders" class="bars"></div></div>`;
     const host = el.querySelector('#stats-charts');
     this.climate = new Chart(host, {
       title: '気温（今との差）',
@@ -128,6 +128,9 @@ export class StatsPanel {
         { label: '近親交配（F≥0.125）の子', color: '--series-5' },
       ],
     });
+    // 「かんたん」では、気温・個体数・体色・多様性のグラフだけ見せる
+    for (const c of [this.traits, this.sexsel, this.corr, this.disp, this.alarm, this.pred, this.births]) c.root.classList.add('detail');
+    this.toggle = detailToggle(el, 'stats', () => this.redraw());
   }
 
   update(world) {

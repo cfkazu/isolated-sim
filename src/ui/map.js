@@ -188,7 +188,7 @@ export class MapView {
     }
   }
 
-  render(world, { selected, related, frac = 1 }) {
+  render(world, { selected, related, frac = 1, pinned = null, hover = null }) {
     this.world = world;
     const { w, h, dpr } = this.resize();
     const ctx = this.ctx;
@@ -391,6 +391,43 @@ export class MapView {
       ctx.strokeStyle = accent;
       ctx.stroke();
     }
+    // 交配予測のために固定した個体：金色の二重丸と 📌
+    if (pinned?.alive) {
+      const [x, y] = pos(pinned);
+      const r = 10 * scale + 4;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#e8a200';
+      ctx.stroke();
+      ctx.font = `${Math.round(10 * scale + 4)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('📌', x + r, y - r);
+    }
+    // マウスを乗せている個体：輪と名前（クリックすると選べる）
+    if (hover?.alive && hover !== selected) {
+      const [x, y] = pos(hover);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(x, y, 8 * scale + 3, 0, Math.PI * 2);
+      ctx.stroke();
+      const label = `${hover.clan}の${hover.name}`;
+      ctx.font = `${Math.round(10 * scale + 3)}px system-ui, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(label).width;
+      const lx = Math.min(x + 12 * scale + 4, w - tw - 8);
+      const ly = Math.max(12, y - 12 * scale - 4);
+      ctx.fillStyle = 'rgba(20,20,20,0.75)';
+      ctx.fillRect(lx - 4, ly - 9, tw + 8, 18);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(label, lx, ly);
+      ctx.textBaseline = 'alphabetic';
+    }
   }
 
   // 縄張り：各個体のねぐら（hx, hy）を草のマス（島の幅の 1/40）に落とし、まわりに少しにじませて、
@@ -510,8 +547,9 @@ export class MapView {
     const r = this.canvas.getBoundingClientRect();
     const x = clientX - r.left;
     const y = clientY - r.top;
+    // 小さな点でも押しやすいよう、少し離れた所を押しても一番近い個体を選ぶ
     let best = null;
-    let bestD = 14 * 14;
+    let bestD = 22 * 22;
     for (const c of world.creatures) {
       const dx = c.x * r.width - x;
       const dy = c.y * r.height - y;
